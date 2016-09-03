@@ -1,0 +1,50 @@
+apply plugin: 'com.android.model.application'
+model{
+    android {
+        compileSdkVersion 23
+        buildToolsVersion "23.0.3"
+
+        defaultConfig {
+            applicationId "com.oslorde.dexdumper"
+            minSdkVersion.apiLevel 14
+            targetSdkVersion.apiLevel 23
+            versionCode 1
+            versionName "1.0"
+
+
+        }
+        ndk {
+            moduleName "dex_dump"
+            stl "c++_static"
+            ldLibs.add("log")
+            ldLibs.add("dl")
+            ldLibs.add("atomic")
+            abiFilters.add("armeabi")
+            abiFilters.add("armeabi-v7a")
+            abiFilters.add("x86")
+            abiFilters.add("x86_64")
+            abiFilters.add("arm64-v8a")
+            cppFlags.add("-std=c++11")
+            cppFlags.add("-fexceptions")
+            cppFlags.add("-g3")
+        }
+        buildTypes {
+            release {
+                ndk{
+                    debuggable true
+                }
+                minifyEnabled false
+                proguardFiles.add(file('proguard-rules.pro'))
+            }
+            debug {
+                debuggable true
+            }
+        }
+    }
+}
+
+dependencies {
+    compile fileTree(include: ['*.jar'], dir: 'libs')
+    testCompile 'junit:junit:4.12'
+    compile project(':sharedlibrary')
+}
