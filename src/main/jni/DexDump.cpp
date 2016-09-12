@@ -3,28 +3,14 @@
 //
 
 #include "DexDump.h"
-#include <algorithm>
 
 const char fill[] ="\0\0\0\0\0\0\0\0";
 DexGlobal dexGlobal;
 static bool isLog;
 JavaVM *javaVM;
-struct DataSection;
-struct LinkData;
-struct Encoded_Value;
-struct HeadSection;
 
-
-enum DexDataType;
 #define SIG_METHOD_NOT_FOUND 34
 
-void handleJniCrash(JNIEnv *env, int sig, void *extra){
-    //jclass dexDumpException=env->FindClass("com/oslorde/extra/DexDumper$DexDumpException");
-    if(sig==SIG_METHOD_NOT_FOUND){
-        jthrowable throwable=env->ExceptionOccurred();
-        env->Throw(throwable);
-    }
-}
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved){
     JNIEnv* env;
     if(vm->GetEnv((void**)&env,JNI_VERSION_1_4)!=JNI_OK){
@@ -137,7 +123,10 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
 	int dirLen = (int) strlen(outDir);
 	char dexName[dirLen +23];
 
-    dexGlobal.dexFileName=dexName;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-stack-address"
+    dexGlobal.dexFileName=dexName;//only within this method
+#pragma clang diagnostic pop
 
     memset(dexName, '\0', (size_t) (dirLen + 23));
 	memcpy(dexName, outDir, (size_t) dirLen);
@@ -190,7 +179,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         u1* begin = const_cast<u1*>(dex->begin_);
         LOGV("start address,%p",begin);
 		DexFile::Header header =*dex->header_ ;
-		if (memcmp(header.magic_, "dex\n",4) != 0 &&judgeVersion(&header.magic_[4])) {
+		if (memcmp(header.magic_, "dex\n",4) != 0 ||!judgeVersion(&header.magic_[4])) {
 			LOGV("Invalid magic version %s",header.magic_);
 			memcpy(header.magic_,reinterpret_cast<const uint8_t*>("dex\n035"), 8);
 		}
@@ -298,8 +287,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         //LOGV("Start resolve clas def");
 		for (int i = 0; i < idNum; ++i) {
 			const DexFile::ClassDef&clsDefItem = *(classDefs + i);
-            const DexFile::TypeId& clsType=typeIds[clsDefItem.class_idx_];
-            const char* clsChars=getStringFromStringId(stringIds[clsType.descriptor_idx_],begin);
+            const char* clsChars=dex->getStringFromTypeIndex(clsDefItem.class_idx_);
             //LOGV("Start put cls data,cls name:%s,classIdx=%u",clsChars,clsDefItem.class_idx_);
             //isLog=strcmp(clsChars,"Landroid/media/MediaMetadataRetriever;")==0;
             dexGlobal.curClass=clsChars;
@@ -507,17 +495,15 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         jbyteArray fileContent= (jbyteArray) env->CallStaticObjectMethod(toolsClass, hashMid, dexPath);
 
         env->DeleteLocalRef(dexPath);
-        jbyte * readBuf= env->GetByteArrayElements(fileContent, 0);
-        //LOGW("SHAl Count");
+        jbyte * readBuf= env->GetByteArrayElements(fileContent, nullptr);
+        LOGV("SHAl Count");
         DexFile::Header* fileHeader= reinterpret_cast<DexFile::Header*>(readBuf);
-        unsigned int adler32(char *data, size_t len);
         fileHeader->checksum_= adler32((char *) fileHeader->signature_, fileSize - 12);
-        //fd=open(dexName,O_RDWR|O_CREAT);
 
         pwrite(fd,(const char*)fileHeader, sizeof(DexFile::Header),0);
         close(fd);
         env->ReleaseByteArrayElements(fileContent,readBuf,JNI_ABORT);
-        env->DeleteLocalRef(fileContent);
+        //env->DeleteLocalRef(fileContent);
 
         LOGV("New Header Written");
        // usleep(1000);
@@ -915,8 +901,8 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
             const art::DexFile::MethodId& methodId=dexFile->method_ids_[methodIdx];
             if(isFixCode()&&thizClass!= nullptr){
                 //LOGV("Fix Code Required,Start Fix,methodIdx=%d",methodIdx);
-                const char* methodName= getStringFromStringId(dexFile->string_ids_[methodId.name_idx_], begin);
-                char* sig=getProtoSig(dexFile->proto_ids_[methodId.proto_idx_], dexFile->type_ids_, dexFile->string_ids_, begin);
+                const char* methodName= dexFile->getStringByStringIndex(methodId.name_idx_);
+                char* sig=getProtoSig(dexFile->proto_ids_[methodId.proto_idx_], dexFile);
                 if(isLog)LOGV("Method =%s%s",methodName,sig);
                 jmethodID  thisMethodId;
                 if((acessFlag&dalvik::ACC_STATIC)==0)

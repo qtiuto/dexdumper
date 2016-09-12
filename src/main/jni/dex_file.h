@@ -24,11 +24,11 @@
 #include <atomic>
 
 #include "globals.h"
-#include "base/macros.h"
 #include "invoke_type.h"
 #include "jni.h"
 #include "modifiers.h"
-#include "base/hash_map.h"
+
+extern void skipULeb128(const uint8_t *&ptr);
 namespace art {
     class MemMap {
     public:
@@ -435,25 +435,27 @@ namespace art {
         // Number of misses finding a class def from a descriptor.
         mutable std::atomic <uint32_t> find_class_def_misses_;
 
-        typedef HashMap<const char *, const ClassDef *, UTF16EmptyFn, UTF16HashCmp, UTF16HashCmp> Index;
-        mutable std::atomic<Index *> class_def_index_;
-        //mutable Mutex build_class_def_index_mutex_ DEFAULT_MUTEX_ACQUIRED_AFTER;
-
-        // The oat file this dex file was loaded from. May be null in case the dex file is not coming
-        // from an oat file, e.g., directly from an apk.
-        const void *oat_file_;
         DexFile(const byte* beg,const Header *const header,
                 const StringId *const string_ids,const TypeId *const type_ids,
                 const FieldId *const field_ids,const MethodId *const method_ids,
                 const ProtoId *const proto_ids,const ClassDef *const class_defs):
                 begin_(beg),size_(0),location_checksum_(0),location_(),header_(header),string_ids_(string_ids),type_ids_(type_ids),
                 field_ids_(field_ids),method_ids_(method_ids),proto_ids_(proto_ids),class_defs_(class_defs){}
+        const char * getStringByStringIndex(const uint32_t index)const {
+            const byte * ptr= begin_ + string_ids_[index].string_data_off_;
+            skipULeb128(ptr);
+            return (const char *) ptr;
+        }
+        const char * getStringFromTypeIndex(u4 index)const {
+            return getStringByStringIndex(type_ids_[index].descriptor_idx_);
+        }
     private:
         DexFile():begin_(0),size_(0),location_(),location_checksum_(0),header_(nullptr),proto_ids_(
                 nullptr),method_ids_(nullptr),string_ids_(nullptr),type_ids_(nullptr),field_ids_(
-                nullptr),class_defs_(nullptr),oat_file_(nullptr){}
+                nullptr),class_defs_(nullptr){}
     };
 }
+
 //
 #endif  // ART_RUNTIME_DEX_FILE_H_
 

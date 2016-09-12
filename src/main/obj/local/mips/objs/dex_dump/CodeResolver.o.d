@@ -43,11 +43,12 @@
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__bit_reference \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\climits \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__split_buffer \
-  jni/invoke_type.h jni/modifiers.h jni/base/hash_map.h \
-  jni/base/hash_set.h jni/android/log.h jni/FixedThreadPool.h \
+  jni/invoke_type.h jni/modifiers.h jni/android/log.h \
+  jni/FixedThreadPool.h \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdlib \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\stdlib.h \
-  jni/dalvik/Object.h jni/dalvik/Dex.h jni/dalvik/DexFile.h
+  jni/base/hash_map.h jni/base/hash_set.h jni/dalvik/Object.h \
+  jni/dalvik/Dex.h jni/dalvik/DexFile.h
 
 jni/CodeResolver.h:
 
@@ -157,10 +158,6 @@ jni/invoke_type.h:
 
 jni/modifiers.h:
 
-jni/base/hash_map.h:
-
-jni/base/hash_set.h:
-
 jni/android/log.h:
 
 jni/FixedThreadPool.h:
@@ -168,6 +165,10 @@ jni/FixedThreadPool.h:
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdlib:
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\stdlib.h:
+
+jni/base/hash_map.h:
+
+jni/base/hash_set.h:
 
 jni/dalvik/Object.h:
 

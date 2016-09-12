@@ -107,6 +107,7 @@ public class DexDumper {
                 Context context=application.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_RESTRICTED);
                 sourceApk=context.getApplicationInfo().sourceDir;
                 ZipFile zipFile=new ZipFile(sourceApk);
+                Utils.log("Dexdump:loadingLib="+abi+"/libdex_dump.so");
                 ZipEntry entry=zipFile.getEntry("lib/"+abi+"/libdex_dump.so");
                 InputStream stream=zipFile.getInputStream(entry);
                 byte[] bytes=new byte[1024];int read;

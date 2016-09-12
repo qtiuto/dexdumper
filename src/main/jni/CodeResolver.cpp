@@ -57,19 +57,17 @@ void* CodeResolver::runResolver(void *args) {
     bool isLog= false;
     CodeResolver*resolver = reinterpret_cast<CodeResolver*>(args);
 
-    const char *clsName=getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_
-    [resolver->methodId->class_idx_].descriptor_idx_],dexGlobal.dexFile->begin_);
-    const char *methodName=getStringFromStringId(dexGlobal.dexFile->string_ids_[resolver->methodId->name_idx_]
-            ,dexGlobal.dexFile->begin_);
-    /*if(equals("Lcom/tencent/open/b/a;",clsName)&&equals(clsName
-            ,"Lcom/shenzhoufu/szfpaymentbycredit/main/MainBalanceNotEnough;")
-            &&equals("Lx/y/a/dm;",clsName)) isLog= true;*/
+    const char *clsName=dexGlobal.dexFile->getStringFromTypeIndex(resolver->thizTypeIdx);
+    if((unsigned long)(resolver->methodId)<1000){
+        throw "Polluted method pointer";
+    }
+    const char *methodName=dexGlobal.dexFile->getStringByStringIndex(resolver->methodId->name_idx_);
+    //if(equals("Lcom/baidu/android/pushservice/d/a;",clsName)) isLog= true;
     ::isLog=isLog;
 
-    char* sig=getProtoSig(dexGlobal.dexFile->proto_ids_[resolver->methodId->proto_idx_],dexGlobal.dexFile->type_ids_,dexGlobal.dexFile->string_ids_,dexGlobal.dexFile->begin_);
-    LOGV("Start AnalysisclsIdx=%u,class=%s,method=%s%s", resolver->thizTypeIdx, getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->
-            type_ids_[resolver->thizTypeIdx].descriptor_idx_], dexGlobal.dexFile->begin_), getStringFromStringId(dexGlobal.dexFile->
-            string_ids_[resolver->methodId->name_idx_], dexGlobal.dexFile->begin_), sig);
+    char* sig=getProtoSig(dexGlobal.dexFile->proto_ids_[resolver->methodId->proto_idx_],dexGlobal.dexFile);
+    LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s",resolver->thizTypeIdx, clsName,
+    methodName, sig);
     delete [] sig;
     resolver->initTries();
     const art::DexFile::CodeItem* code= resolver->codeItem;
@@ -96,7 +94,7 @@ void* CodeResolver::runResolver(void *args) {
                 delete curNode;
                 //LOGV("End delete Node");
                 delete lastRange;
-               // LOGV("End Delete Range");
+                // LOGV("End Delete Range");
                 goto EndPoint;
             }
             if(isNpeReturn){
@@ -104,7 +102,7 @@ void* CodeResolver::runResolver(void *args) {
                 LOGV("into Npe");
                 if(nextRange!= nullptr){
                     if(nextRange->preRange->preRange== nullptr){
-                        LOGW("Unexpected npe at first range");
+                        LOGE("Unexpected npe at first range");
                         //roll back;temperory
                         pos=0;
                     } else{
@@ -128,8 +126,8 @@ void* CodeResolver::runResolver(void *args) {
             Range* existed;
             if(isLog)LOGV("Try start new range");
             if((existed=Range::startNewRange(lastRange,nextRange,pos,curNode->ins_pos))== nullptr){
-                if(isLog) LOGV("%s Start new node at pos=%u",clsName,pos);
                 pos =curNode->ins_pos;
+                if(isLog) LOGV("%s Start new node at pos=%u",clsName,pos);
                 continue;
             } else{
                 if(isLog)LOGV("Move to next");
@@ -139,335 +137,373 @@ void* CodeResolver::runResolver(void *args) {
             }
 
         }
-        if(isLog){LOGV("Check Next Range");}
-        Range::checkNextRange(pos, nextRange, lastRange);
+        try {
+            Range::checkNextRange(pos, nextRange, lastRange);
+        }catch (std::exception& e){
+            LOGE("Range check failed ,lastOp=0x%x lastpos=0x%x lastpreData=0x%x class=%s m=%s",opCode,pos,preData,clsName,methodName);
+            throw e;
+        }
+
         ins= (u1 *) &insns[pos];
         opCode=*ins;
         preData=ins[1];
         thisPos = pos;
         if(isLog){
-            LOGV("Op=0x%x pos=0x%x preData=0x%x",opCode,pos,preData);
+            LOGV("Op=0x%x pos=%u preData=0x%x",opCode,pos,preData);
             //usleep(20);
         }
-        switch (opCode){
-            case move:
-            case moveOb:{
-                u1 rA= preData & (u1)0xf;
-                curNode->registerTypes[rA]=curNode->registerTypes[preData >> 4];
-                pos++;
-                break;
-            }
-            case moveW:{
-                u1 rA= preData & (u1)0xf;
-                curNode->registerTypes[rA]=curNode->registerTypes[preData >> 4];
-                curNode->registerTypes[rA+1]=TypePrimitive;
-                pos++;break;
-            }
-            case move16W:
-                curNode->registerTypes[preData + 1]=TypePrimitive;
-            case move16:
-            case moveOb16:
-                curNode->registerTypes[preData]=curNode->registerTypes[insns[pos + 1]];
-                //if(isLog) LOGV("Reg%d updated by reg%d with %u",preData,insns[pos+1],curNode->registerTypes[insns[pos + 1]]);
-                pos +=2;break;
-            case move16LW:
-                curNode->registerTypes[insns[pos + 1] + 1]=TypePrimitive;
-            case move16L:
-            case moveOb16L:
-                curNode->registerTypes[insns[pos + 1]]=curNode->registerTypes[insns[pos + 2]];
-                pos +=3;break;
-            case moveResultW:
-                curNode->registerTypes[preData+1]=TypePrimitive;
-            case moveResult:
-                curNode->registerTypes[preData]=TypePrimitive;
-                ++pos;
-                break;
-            case moveResultOb:{
-                ins=(u1 *) &insns[lastPos];
-                opCode= *ins;
-                //LOGV("%s last hex code before move result %x %x %x %x %x %x",clsName,ins[0],ins[1],ins[2],ins[3],ins[4],ins[5]);
-                switch(opCode){
-                    case fillArray:
-                    case fillArrayR:
-                        curNode->registerTypes[preData]=insns[lastPos + 1];//we can't judge it's array type
-                        break;
-                    default:{
-                        const art::DexFile::MethodId& methodId=
-                                dexGlobal.dexFile->method_ids_[insns[lastPos + 1]];
-                        if(isLog)logMethod(methodId, dexGlobal.dexFile);
-                        curNode->registerTypes[preData]= dexGlobal.dexFile->
-                                proto_ids_[methodId.proto_idx_].return_type_idx_;
-                        if(isLog)LOGV("%s Meet move result, last op=%d,reg %d updated with %d",clsName,opCode,preData,curNode->registerTypes[preData]);
-                        break;
-                    }
-                }
-                ++pos;break;
-            }
-            case moveExcept:++pos;break;
-            case returnVNo:
-                insns[pos]=returnV;
-            case returnV:
-            case returnD:
-            case returnW:
-            case returnOb:
-            case throwD:
-                //LOGV("meet return point %s %s",clsName,methodName);
-                goto Next;
-            case const32:++pos;
-            case const16:
-            case const16H:pos+=2;
-                curNode->registerTypes[preData]=TypePrimitive;
-                break;
-            case const4:
-            case arrayLen:++pos;
-                curNode->registerTypes[u1(preData & 0xf)]=TypePrimitive;
-                break;
-            case instanceOf:
-                curNode->registerTypes[u1(preData & 0xf)]=TypePrimitive;
-                pos+=2;
-                break;
-            case const64W:
-                pos +=2;
-            case const32W:++pos;
-            case const16W:
-            case const16HW:
-                pos +=2;
-                curNode->registerTypes[preData]=TypePrimitive;
-                curNode->registerTypes[(u4) preData + 1]=TypePrimitive;
-                break;
-            case constStrJ:++pos;
-            case constStr:pos+=2;
-                curNode->registerTypes[preData]=globalRef.strTypeIdx;
-                break;
-            case constClass:
-                curNode->registerTypes[preData]=globalRef.clsTypeIdx;pos+=2;
-                break;
-            case checkCast:
-            case newInstance:
-                curNode->registerTypes[preData]=insns[++pos];
-                ++pos;
-                break;
-            case newArray:
-                if(isLog)LOGV("Meet new Array reg%u updated with %u real=%u",u1(preData & 0xf),TypeArray+insns[pos+1],insns[pos+1]);
-                curNode->registerTypes[u1(preData & 0xf)]=insns[pos+1];
-                pos+=2;
-                break;
-            case fillArray:
-            case fillArrayR:
-            case fillArrayData:pos+=3;
-                break;
-            case goto8:{
-                u4 newAddress=(u4)(pos+(int8_t) preData);
-                if(Range::startNewRange(lastRange,nextRange, pos, newAddress)== nullptr) {
-                   // LOGV("%s goto %u",clsName,newAddress);
-                    pos = newAddress;
+        try {
+            switch (opCode){
+                case move:
+                case moveOb:{
+                    u1 rA= preData & (u1)0xf;
+                    resolver->checkRegRange(rA);
+                    resolver->checkRegRange(preData>>4);
+                    curNode->registerTypes[rA]=curNode->registerTypes[preData >> 4];
+                    pos++;
                     break;
                 }
-                else goto Next;
-            }
-
-            case goto16:{
-                u4 newAddress=(u4)(pos +(int16_t) insns[pos+1]);
-                if(Range::startNewRange(lastRange,nextRange, ++pos, newAddress)== nullptr){
-                    pos=newAddress;
+                case moveW:{
+                    u1 rA= preData & (u1)0xf;
+                    resolver->checkRegRange(rA+1);
+                    resolver->checkRegRange(preData>>4);
+                    curNode->registerTypes[rA]=curNode->registerTypes[preData >> 4];
+                    curNode->registerTypes[rA+1]=TypePrimitive;
+                    pos++;break;
+                }
+                case move16W:
+                    resolver->checkRegRange(preData+1);
+                    curNode->registerTypes[preData + 1]=TypePrimitive;
+                case move16:
+                case moveOb16:
+                    resolver->checkRegRange(preData);
+                    resolver->checkRegRange(insns[pos + 1]);
+                    curNode->registerTypes[preData]=curNode->registerTypes[insns[pos + 1]];
+                    //if(isLog) LOGV("Reg%d updated by reg%d with %u",preData,insns[pos+1],curNode->registerTypes[insns[pos + 1]]);
+                    pos +=2;break;
+                case move16LW:
+                    resolver->checkRegRange(insns[pos + 1] + 1);
+                    curNode->registerTypes[insns[pos + 1] + 1]=TypePrimitive;
+                case move16L:
+                case moveOb16L:
+                    resolver->checkRegRange(insns[pos + 1]);
+                    resolver->checkRegRange(insns[pos + 2]);
+                    curNode->registerTypes[insns[pos + 1]]=curNode->registerTypes[insns[pos + 2]];
+                    pos +=3;break;
+                case moveResultW:
+                    resolver->checkRegRange(preData+1);
+                    curNode->registerTypes[preData+1]=TypePrimitive;
+                case moveResult:
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=TypePrimitive;
+                    ++pos;
                     break;
-                } else goto Next;
-            }
-            case goto32:{
-                u4 address=u4(pos+*((int32_t*)&insns[pos+1]));
-                if(Range::startNewRange(lastRange,nextRange, (pos+= 2), address)== nullptr){
-                    pos = address;
-                    break;
-                }else goto Next;
-            }
-            case packedSwitch:{
-                int offset=*((int*)&insns[pos+1]);
-                u4 tablePos=pos+offset;
-                u2 size = insns[tablePos + 1];
-                int* targets=((int*)(insns+tablePos))+2;
-                //LOGV("Meet packed switch size=%u offset=%d",size,offset);
-                for(int i=0;i<size;++i){
-                    if(forkNode(code, curNode, lastRange, thisPos + 2, pos + targets[i], clsName)){
-                        //LOGV("%s Target at %d=%u",clsName,i,pos+targets[i]);
-                    }
-                }
-                pos+=3;
-                break;
-            }
-            case sparseSwitch:{
-                int offset=*((int*)&insns[pos+1]);
-                u4 tablePos=pos+offset;
-                u2 size = insns[tablePos + 1];
-                int* targets=((int*)(insns+tablePos))+1+size;
-                for(int i=0;i<size;++i){
-                    forkNode(code, curNode, lastRange, thisPos + 2, pos + targets[i], clsName);
-                }
-                pos+=3;
-                break;
-            }
-            case ifEq:
-            case ifNe:
-            case ifLt:
-            case ifGe:
-            case ifGt:
-            case ifLe:
-            case ifEqz:
-            case ifNez:
-            case ifLtz:
-            case ifGez:
-            case ifGtz:
-            case ifLez:
-                forkNode(code, curNode, lastRange, pos + 1, pos + (int16_t)insns[pos + 1], clsName);
-                //LOGV(" At pos =%u if new node fork offset= %d",pos,(int16_t) insns[pos + 1]);
-                pos+=2;
-                break;
-            case agetW:
-            case sgetW:
-                curNode->registerTypes[preData+1]=TypePrimitive;
-            case aget:
-            case agetBoolean:
-            case agetByte:
-            case agetChar:
-            case agetShort:
-            case sget:
-            case sgetBoolean:
-            case sgetByte:
-            case sgetChar:
-            case sgetShort:{
-                curNode->registerTypes[preData]=TypePrimitive;
-                pos+=2;break;
-            }
-            case igetW:
-                curNode->registerTypes[(preData&0xf)+1]=TypePrimitive;
-            case iget:
-            case igetBoolean:
-            case igetByte:
-            case igetChar:
-            case igetShort:{
-                u1 rOb= preData >> 4;
-                if(curNode->registerTypes[rOb]==TypePrimitive){
-                    isNpeReturn= true;
-                    goto Next;
-                }
-                curNode->registerTypes[preData&0xf]=TypePrimitive;
-                pos+=2;
-                break;
-            }
-            case agetOb:{
-                ins= (u1 *) &insns[pos + 1];
-                u4 arrayType=curNode->registerTypes[*ins];
-                u4 type=0;
-                const char* typeName=getStringFromStringId(
-                        dexGlobal.dexFile->string_ids_[
-                                dexGlobal.dexFile->type_ids_[arrayType].
-                                        descriptor_idx_],dexGlobal.dexFile->begin_);
-                if(typeName[0]=='['){
-                    if(strcmp(typeName+1,"Ljava/lang/String;")==0){
-                        type=globalRef.strTypeIdx;
-                    } else if(strcmp(typeName+1,"Ljava/lang/Class;")==0){
-                        type=globalRef.clsTypeIdx;
-                    } else{
-                        const art::DexFile* dexFile=dexGlobal.dexFile;
-                        for(u4 i=0,N=dexFile->header_->type_ids_size_;i<N;++i){
-                            if(strcmp(getStringFromStringId(dexFile->string_ids_
-                                                            [dexFile->type_ids_[i].descriptor_idx_],dexFile->begin_),
-                                      typeName+1)==0){
-                                type=i;
-                                break;
-                            }
+                case moveResultOb:{
+                    ins=(u1 *) &insns[lastPos];
+                    opCode= *ins;
+                    //LOGV("%s last hex code before move result %x %x %x %x %x %x",clsName,ins[0],ins[1],ins[2],ins[3],ins[4],ins[5]);
+                    switch(opCode){
+                        case fillArray:
+                        case fillArrayR:
+                            resolver->checkRegRange(preData);
+                            curNode->registerTypes[preData]=insns[lastPos + 1];//we can't judge it's array type
+                            break;
+                        default:{
+                            const art::DexFile::MethodId& methodId=
+                                    dexGlobal.dexFile->method_ids_[insns[lastPos + 1]];
+                            if(isLog)logMethod(methodId, dexGlobal.dexFile);
+                            resolver->checkRegRange(preData);
+                            curNode->registerTypes[preData]= dexGlobal.dexFile->
+                                    proto_ids_[methodId.proto_idx_].return_type_idx_;
+                            if(isLog)LOGV("%s Meet move result, last op=%d,reg %d updated with %d",clsName,opCode,preData,curNode->registerTypes[preData]);
+                            break;
                         }
                     }
-                } else{
-                    LOGW("Illegal array type %s",typeName);
+                    ++pos;break;
                 }
-                if(type== 0){
-                    LOGW("can't find class type for array type=%s",typeName);
-                }
-                //if(isLog) LOGV("Aget reg%u updated by reg%u with %u",preData,*ins,type);
-                curNode->registerTypes[preData]=type;
-                pos+=2;break;
-            }
-            case igetOb:{
-                u1 rOb= preData >> 4;
-                if(curNode->registerTypes[rOb]==TypePrimitive){
-                    isNpeReturn= true;
+                case moveExcept:++pos;break;
+                case returnVNo:
+                    insns[pos]=returnV;
+                case returnV:
+                case returnD:
+                case returnW:
+                case returnOb:
+                case throwD:
+                    //LOGV("meet return point %s %s",clsName,methodName);
                     goto Next;
+                case const32:++pos;
+                case const16:
+                case const16H:pos+=2;
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=TypePrimitive;
+                    break;
+                case const4:
+                case arrayLen:++pos;
+                    resolver->checkRegRange(preData & 0xfu);
+                    curNode->registerTypes[u1(preData & 0xf)]=TypePrimitive;
+                    break;
+                case instanceOf:
+                    resolver->checkRegRange(preData & 0xfu);
+                    curNode->registerTypes[u1(preData & 0xf)]=TypePrimitive;
+                    pos+=2;
+                    break;
+                case const64W:
+                    pos +=2;
+                case const32W:++pos;
+                case const16W:
+                case const16HW:
+                    pos +=2;
+                    resolver->checkRegRange(preData+1u);
+                    curNode->registerTypes[preData]=TypePrimitive;
+                    curNode->registerTypes[ preData + 1u]=TypePrimitive;
+                    break;
+                case constStrJ:++pos;
+                case constStr:pos+=2;
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=globalRef.strTypeIdx;
+                    break;
+                case constClass:
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=globalRef.clsTypeIdx;pos+=2;
+                    break;
+                case checkCast:
+                case newInstance:
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=insns[++pos];
+                    ++pos;
+                    break;
+                case newArray:
+                    if(isLog)LOGV("Meet new Array reg%u updated with %u real=%u",u1(preData & 0xf),TypeArray+insns[pos+1],insns[pos+1]);
+                    resolver->checkRegRange(preData&0xfu);
+                    curNode->registerTypes[u1(preData & 0xf)]=insns[pos+1];
+                    pos+=2;
+                    break;
+                case fillArray:
+                case fillArrayR:
+                case fillArrayData:pos+=3;
+                    break;
+                case goto8:{
+                    u4 newAddress=(u4)(pos+(int8_t) preData);
+                    if(Range::startNewRange(lastRange,nextRange, pos, newAddress)== nullptr) {
+                        // LOGV("%s goto %u",clsName,newAddress);
+                        pos = newAddress;
+                        break;
+                    }
+                    else goto Next;
                 }
-                uint16_t typeIdx = dexGlobal.dexFile->
-                        field_ids_[insns[pos+1]].type_idx_;
-                //LOGV("reg=%u, updated with %u, referred by data %u",preData&0xf,typeIdx,insns[pos+1]);
-                //usleep(50);
-                curNode->registerTypes[preData & 0xf]= typeIdx;
-                pos+=2;break;
-            }
-            case sgetOb:{
-                u4 type=dexGlobal.dexFile->
-                        field_ids_[insns[pos+1]].type_idx_;
-                //LOGV("reg=%u, updated with %u, referred by data %u",preData,type,insns[pos+1]);
-                //usleep(50);
-                curNode->registerTypes[preData]=type ;
-                pos+=2;break;
-            }
-            case iput:
-            case iputW:
-            case iputOb:
-            case iputBoolean:
-            case iputByte:
-            case iputChar:
-            case iputShort:
-            {
-                u1 rOb= preData >> 4;
-                if(curNode->registerTypes[rOb]==TypePrimitive){
-                    isNpeReturn= true;
-                    goto Next;
+
+                case goto16:{
+                    u4 newAddress=(u4)(pos +(int16_t) insns[pos+1]);
+                    if(Range::startNewRange(lastRange,nextRange, ++pos, newAddress)== nullptr){
+                        pos=newAddress;
+                        break;
+                    } else goto Next;
                 }
-            }
-            case aput:
-            case aputW:
-            case aputOb:
-            case aputBoolean:
-            case aputByte:
-            case aputChar:
-            case aputShort:
-            case sput:
-            case sputW:
-            case sputOb:
-            case sputBoolean:
-            case sputByte:
-            case sputChar:
-            case sputShort:{
-                pos+=2;
-                break;
-            }
-            case invokeVirtual:
-            case invokeSuper:
-            case invokeDirect:
-            case invokeInterface:{
-                u1 iReg=u1(insns[pos+2]&0xf);
-                if(curNode->registerTypes[iReg]==TypePrimitive){
-                    isNpeReturn= true;
-                    //NullPointerException;
-                    LOGV("npe met");
-                    goto Next;
+                case goto32:{
+                    u4 address=u4(pos+*((int32_t*)&insns[pos+1]));
+                    if(Range::startNewRange(lastRange,nextRange, (pos+= 2), address)== nullptr){
+                        pos = address;
+                        break;
+                    }else goto Next;
                 }
-                pos+=3;
-                break;
-            }
-            case invokeStatic:{pos+=3;break;}
-            case invokeVirtualR:
-            case invokeSuperR:
-            case invokeDirectR:
-            case invokeInterfaceR:{
-                if(curNode->registerTypes[insns[pos+2]]==TypePrimitive){
-                    isNpeReturn= true;
-                    //NullPointerException;
-                    goto Next;
+                case packedSwitch:{
+                    int offset=*((int*)&insns[pos+1]);
+                    u4 tablePos=pos+offset;
+                    u2 size = insns[tablePos + 1];
+                    int* targets=((int*)(insns+tablePos))+2;
+                    //LOGV("Meet packed switch size=%u offset=%d",size,offset);
+                    for(int i=0;i<size;++i){
+                        if(forkNode(code, curNode, lastRange, thisPos + 2, pos + targets[i], clsName)){
+                            //LOGV("%s Target at %d=%u",clsName,i,pos+targets[i]);
+                        }
+                    }
+                    pos+=3;
+                    break;
                 }
-                pos+=3;
-                break;
-            }
-            case invokeStaticR:{pos+=3;break;}
+                case sparseSwitch:{
+                    int offset=*((int*)&insns[pos+1]);
+                    u4 tablePos=pos+offset;
+                    u2 size = insns[tablePos + 1];
+                    int* targets=((int*)(insns+tablePos))+1+size;
+                    for(int i=0;i<size;++i){
+                        forkNode(code, curNode, lastRange, thisPos + 2, pos + targets[i], clsName);
+                    }
+                    pos+=3;
+                    break;
+                }
+                case ifEq:
+                case ifNe:
+                case ifLt:
+                case ifGe:
+                case ifGt:
+                case ifLe:
+                case ifEqz:
+                case ifNez:
+                case ifLtz:
+                case ifGez:
+                case ifGtz:
+                case ifLez:
+                    forkNode(code, curNode, lastRange, pos + 1, pos + (int16_t)insns[pos + 1], clsName);
+                    //LOGV(" At pos =%u if new node fork offset= %d",pos,(int16_t) insns[pos + 1]);
+                    pos+=2;
+                    break;
+                case agetW:
+                case sgetW:
+                    resolver->checkRegRange(preData+1);
+                    curNode->registerTypes[preData+1]=TypePrimitive;
+                case aget:
+                case agetBoolean:
+                case agetByte:
+                case agetChar:
+                case agetShort:
+                case sget:
+                case sgetBoolean:
+                case sgetByte:
+                case sgetChar:
+                case sgetShort:{
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=TypePrimitive;
+                    pos+=2;break;
+                }
+                case igetW:
+                    resolver->checkRegRange((preData&0xfu)+1);
+                    curNode->registerTypes[(preData&0xf)+1]=TypePrimitive;
+                case iget:
+                case igetBoolean:
+                case igetByte:
+                case igetChar:
+                case igetShort:{
+                    u1 rOb= preData >> 4;
+                    resolver->checkRegRange(rOb);
+                    if(curNode->registerTypes[rOb]==TypePrimitive){
+                        isNpeReturn= true;
+                        goto Next;
+                    }
+                    resolver->checkRegRange(preData&0xfu);
+                    curNode->registerTypes[preData&0xf]=TypePrimitive;
+                    pos+=2;
+                    break;
+                }
+                case agetOb:{
+                    ins= (u1 *) &insns[pos + 1];
+                    resolver->checkRegRange(*ins);
+                    u4 arrayType=curNode->registerTypes[*ins];
+                    u4 type=0;
+                    const char* typeName=dexGlobal.dexFile->getStringFromTypeIndex(arrayType);
+                    if(typeName[0]=='['){
+                        if(strcmp(typeName+1,"Ljava/lang/String;")==0){
+                            type=globalRef.strTypeIdx;
+                        } else if(strcmp(typeName+1,"Ljava/lang/Class;")==0){
+                            type=globalRef.clsTypeIdx;
+                        } else{
+                            const art::DexFile* dexFile=dexGlobal.dexFile;
+                            for(u4 i=0,N=dexFile->header_->type_ids_size_;i<N;++i){
+                                if(strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
+                                          typeName+1)==0){
+                                    type=i;
+                                    break;
+                                }
+                            }
+                        }
+                    } else{
+                        LOGE("Illegal array type %s",typeName);
+                    }
+                    if(type== 0){
+                        LOGE("can't find class type for array type=%s",typeName);
+                    }
+                    //if(isLog) LOGV("Aget reg%u updated by reg%u with %u",preData,*ins,type);
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=type;
+                    pos+=2;break;
+                }
+                case igetOb:{
+                    u1 rOb= preData >> 4;
+                    resolver->checkRegRange(rOb);
+                    if(curNode->registerTypes[rOb]==TypePrimitive){
+                        isNpeReturn= true;
+                        goto Next;
+                    }
+                    uint16_t typeIdx = dexGlobal.dexFile->
+                            field_ids_[insns[pos+1]].type_idx_;
+                    //LOGV("reg=%u, updated with %u, referred by data %u",preData&0xf,typeIdx,insns[pos+1]);
+                    //usleep(50);
+                    resolver->checkRegRange(preData&0xfu);
+                    curNode->registerTypes[preData & 0xf]= typeIdx;
+                    pos+=2;break;
+                }
+                case sgetOb:{
+                    u4 type=dexGlobal.dexFile->
+                            field_ids_[insns[pos+1]].type_idx_;
+                    //LOGV("reg=%u, updated with %u, referred by data %u",preData,type,insns[pos+1]);
+                    //usleep(50);
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData]=type ;
+                    pos+=2;break;
+                }
+                case iput:
+                case iputW:
+                case iputOb:
+                case iputBoolean:
+                case iputByte:
+                case iputChar:
+                case iputShort:
+                {
+                    u1 rOb= preData >> 4;
+                    resolver->checkRegRange(rOb);
+                    if(curNode->registerTypes[rOb]==TypePrimitive){
+                        isNpeReturn= true;
+                        goto Next;
+                    }
+                }
+                case aput:
+                case aputW:
+                case aputOb:
+                case aputBoolean:
+                case aputByte:
+                case aputChar:
+                case aputShort:
+                case sput:
+                case sputW:
+                case sputOb:
+                case sputBoolean:
+                case sputByte:
+                case sputChar:
+                case sputShort:{
+                    pos+=2;
+                    break;
+                }
+                case invokeVirtual:
+                case invokeSuper:
+                case invokeDirect:
+                case invokeInterface:{
+                    u1 iReg=u1(insns[pos+2]&0xf);
+                    resolver->checkRegRange(iReg);
+                    if(curNode->registerTypes[iReg]==TypePrimitive){
+                        isNpeReturn= true;
+                        //NullPointerException;
+                        LOGV("npe met");
+                        goto Next;
+                    }
+                    pos+=3;
+                    break;
+                }
+                case invokeStatic:{pos+=3;break;}
+                case invokeVirtualR:
+                case invokeSuperR:
+                case invokeDirectR:
+                case invokeInterfaceR:{
+                    resolver->checkRegRange(insns[pos+2]);
+                    if(curNode->registerTypes[insns[pos+2]]==TypePrimitive){
+                        isNpeReturn= true;
+                        //NullPointerException;
+                        goto Next;
+                    }
+                    pos+=3;
+                    break;
+                }
+                case invokeStaticR:{pos+=3;break;}
 #define CHECK_FIELD_NPE() u1 rOb= preData >> 4;\
+                resolver->checkRegRange(rOb);\
                 if(curNode->registerTypes[rOb]==TypePrimitive){\
                     isNpeReturn= true;\
                     goto Next;\
@@ -477,175 +513,198 @@ void* CodeResolver::runResolver(void *args) {
                 *ins=x;\
                 resolver->alterField(curNode, insns, rOb, pos);\
                 u1 rA=preData&u1(0xf);\
+                resolver->checkRegRange(rA);\
                 curNode->registerTypes[rA]=TypePrimitive;\
                 pos+=2;break;
 
-            case igetQ:{
-                IGET_CODE(iget)
-            }
-            case igetWQ:{
-                CHECK_FIELD_NPE();
-                *ins=igetW;
-                resolver->alterField(curNode, insns, rOb, pos);
-                u1 rA=preData&u1(0xf);
-                curNode->registerTypes[rA]=TypePrimitive;
-                curNode->registerTypes[rA+1]=TypePrimitive;
-                pos+=2;break;
-            }
-            case igetObQ:{
-               CHECK_FIELD_NPE();
-                *ins=igetOb;
-                resolver->alterField(curNode, insns, rOb, pos);
-                u1 rA=preData&u1(0xf);
-                curNode->registerTypes[rA]=
-                        dexGlobal.dexFile->field_ids_[insns[pos+1]].type_idx_;
-                pos+=2;break;
-            }
+                case igetQ:{
+                    IGET_CODE(iget)
+                }
+                case igetWQ:{
+                    CHECK_FIELD_NPE();
+                    *ins=igetW;
+                    resolver->alterField(curNode, insns, rOb, pos);
+                    u1 rA=preData&u1(0xf);
+                    resolver->checkRegRange(rA+1);
+                    curNode->registerTypes[rA]=TypePrimitive;
+                    curNode->registerTypes[rA+1]=TypePrimitive;
+                    pos+=2;break;
+                }
+                case igetObQ:{
+                    CHECK_FIELD_NPE();
+                    *ins=igetOb;
+                    resolver->alterField(curNode, insns, rOb, pos);
+                    u1 rA=preData&u1(0xf);
+                    resolver->checkRegRange(rA);
+                    curNode->registerTypes[rA]=
+                            dexGlobal.dexFile->field_ids_[insns[pos+1]].type_idx_;
+                    pos+=2;break;
+                }
 #define IPUT_CODE(x) CHECK_FIELD_NPE();\
                 *ins=x;\
                 resolver->alterField(curNode, insns, rOb, pos);\
                 pos+=2;break;
 
-            case iputQ:{
-                IPUT_CODE(iput);
-            }
-            case iputWQ:{
-               IPUT_CODE(iputW);
-            }
-            case iputObQ:{
-                IPUT_CODE(iputOb);
-            }
-            case invokeVirtualQ:{
-                u1 iReg=u1(insns[pos+2]&0xf);
-                if(curNode->registerTypes[iReg]==TypePrimitive){
-                    isNpeReturn= true;
-                    //NullPointerException;
-                    goto Next;
+                case iputQ:{
+                    IPUT_CODE(iput);
                 }
-                *ins=invokeVirtual;
-                //LOGV("Meet invokeVirtualQ,regNum=%d",iReg);
-                u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[iReg], insns[pos + 1]);
-                if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);
-                if(methodIdx==UNDEFINED) {
-                    goto Next;
+                case iputWQ:{
+                    IPUT_CODE(iputW);
                 }
-                resolver->changeIdx(insns, pos, methodIdx);
-                pos+=3;break;
-            }
-            case invokeVirtualRQ:{
-                if(curNode->registerTypes[insns[pos+2]]==TypePrimitive){
-                    isNpeReturn= true;
-                    //NullPointerException;
-                    goto Next;
+                case iputObQ:{
+                    IPUT_CODE(iputOb);
                 }
-                *ins=invokeVirtualR;
-                u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[insns[pos + 2]], insns[pos + 1]);
-                resolver->changeIdx(insns, pos, methodIdx);
-                pos+=3;break;
-            }
-            case iputBooleanQ:{
-               IPUT_CODE(iputBoolean);
-            }
-            case iputByteQ:{
-                IPUT_CODE(iputByte);
-            }
-            case iputCharQ:{
-                IPUT_CODE(iputChar);
-            }
-            case iputShortQ:{
-                IPUT_CODE(iputShort);
-            }
-            case igetBooleanQ: {
-               IGET_CODE(igetBoolean)
-            }
-            case igetByteQ:{
-                IGET_CODE(igetByte)
-            }
-            case igetCharQ:{IGET_CODE(igetChar)}
-            case igetShortQ:{IGET_CODE(igetShort)}
-            //Lambda codes may affect some regs,but they will be
-                // reset before quick invoke some just skip them.
-            case invokeLambda:{
-                pos+=2;
-                break;
-            }
-            case captureVariable:{
-                pos+=2;
-                break;
-            }
-            case createLambda:{
-                pos+=2;
-                break;
-            }
-            case liberateVariable:{
-                //For object type, it's still unimplemented
-                pos+=2;
-                break;
-            }
-            case boxLambda:{
-                pos+=2;
-                break;
-            }
-            case unboxLambda:{
-                pos+=2;
-                break;
-            }
-            case nop:{
-                switch (preData) {
-                    case PACKED_SWITCH: {
-                        u2 size = insns[pos + 1];
-                        pos += ((size * 2) + 4);
-                        break;
+                case invokeVirtualQ:{
+                    u1 iReg=u1(insns[pos+2]&0xf);
+                    resolver->checkRegRange(iReg);
+                    if(curNode->registerTypes[iReg]==TypePrimitive){
+                        isNpeReturn= true;
+                        //NullPointerException;
+                        goto Next;
                     }
-                    case SPARSE_SWITCH: {
-                        u2 size = insns[pos + 1];
-                        pos += ((size * 4) + 2);
-                        break;
+                    *ins=invokeVirtual;
+                    //LOGV("Meet invokeVirtualQ,regNum=%d",iReg);
+                    resolver->checkRegRange(iReg);
+                    u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[iReg], insns[pos + 1]);
+                    if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);
+                    if(methodIdx==UNDEFINED) {
+                        goto Next;
                     }
-                    case FILL_ARRAY_DATA: {
-                        u2 width = insns[pos + 1];
-                        u4 size = *reinterpret_cast<u4 *>(&insns[pos + 2]);
-                        u4 tableSize = (size * width + 1) / 2 + 4;//plus 1 in case width is odd,for even the plus is ignored
-                        pos += tableSize;
-                        break;
-                    }
-                    default: {
-                        ++pos;
-                        break;
-                    }
+                    resolver->changeIdx(insns, pos, methodIdx);
+                    pos+=3;break;
                 }
-                break;
-            }
-            default:{
-                if((opCode>=0x2d&&opCode<=0x31)
-                   ||(opCode>=0x90&&opCode<=0xaf)
-                   ||(opCode>=0xd8&&opCode<=0xe2)){
-                    curNode->registerTypes[preData]=TypePrimitive;
-                    pos+=2;
-                    break;
-                } else if(opCode>=0xd0&&opCode<=0xd7){
-                    curNode->registerTypes[u1(preData&0xf)]=TypePrimitive;
+                case invokeVirtualRQ:{
+                    resolver->checkRegRange(insns[pos+2]);
+                    if(curNode->registerTypes[insns[pos+2]]==TypePrimitive){
+                        isNpeReturn= true;
+                        //NullPointerException;
+                        goto Next;
+                    }
+                    *ins=invokeVirtualR;
+                    u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[insns[pos + 2]], insns[pos + 1]);
+                    resolver->changeIdx(insns, pos, methodIdx);
+                    pos+=3;break;
+                }
+                case iputBooleanQ:{
+                    IPUT_CODE(iputBoolean);
+                }
+                case iputByteQ:{
+                    IPUT_CODE(iputByte);
+                }
+                case iputCharQ:{
+                    IPUT_CODE(iputChar);
+                }
+                case iputShortQ:{
+                    IPUT_CODE(iputShort);
+                }
+                case igetBooleanQ: {
+                    IGET_CODE(igetBoolean)
+                }
+                case igetByteQ:{
+                    IGET_CODE(igetByte)
+                }
+                case igetCharQ:{IGET_CODE(igetChar)}
+                case igetShortQ:{IGET_CODE(igetShort)}
+                    //Lambda codes may affect some regs,but they will be
+                    // reset before quick invoke some just skip them.
+                case invokeLambda:{
                     pos+=2;
                     break;
                 }
-                ++pos;
-                break;
-            }
-        }
-        TryItem* tryItem;
-        if(resolver->tryMap != nullptr &&
-           (tryItem= resolver->tryMap->seekTry(thisPos)) != nullptr){
-            //JumpNode* node=curNode->nextNode;
-            if(isLog)LOGV("Into try dispatch");
-            for(int j=0;j<tryItem->handlerSize;++j){
-                if(forkNode(code, curNode, lastRange, pos - 1, tryItem->handlers[j].offset + 1, clsName)){
-                    u1 reg= (u1) (insns[curNode->nextNode->ins_pos] >> 8);
-                    curNode->nextNode->registerTypes[reg]=tryItem->handlers[j].typeIdx;
+                case captureVariable:{
+                    pos+=2;
+                    break;
                 }
+                case createLambda:{
+                    pos+=2;
+                    break;
+                }
+                case liberateVariable:{
+                    //For object type, it's still unimplemented
+                    pos+=2;
+                    break;
+                }
+                case boxLambda:{
+                    pos+=2;
+                    break;
+                }
+                case unboxLambda:{
+                    pos+=2;
+                    break;
+                }
+                case nop:{
+                    switch (preData) {
+                        case PACKED_SWITCH: {
+                            u2 size = insns[pos + 1];
+                            pos += ((size * 2) + 4);
+                            break;
+                        }
+                        case SPARSE_SWITCH: {
+                            u2 size = insns[pos + 1];
+                            pos += ((size * 4) + 2);
+                            break;
+                        }
+                        case FILL_ARRAY_DATA: {
+                            u2 width = insns[pos + 1];
+                            u4 size = *reinterpret_cast<u4 *>(&insns[pos + 2]);
+                            u4 tableSize = (size * width + 1) / 2 + 4;//plus 1 in case width is odd,for even the plus is ignored
+                            pos += tableSize;
+                            break;
+                        }
+                        default: {
+                            ++pos;
+                            break;
+                        }
+                    }
+                    break;
+                }
+                default:{
+                    if((opCode>=0x2d&&opCode<=0x31)
+                       ||(opCode>=0x90&&opCode<=0xaf)
+                       ||(opCode>=0xd8&&opCode<=0xe2)){
+                        curNode->registerTypes[preData]=TypePrimitive;
+                        pos+=2;
+                        break;
+                    } else if(opCode>=0xd0&&opCode<=0xd7){
+                        curNode->registerTypes[u1(preData&0xf)]=TypePrimitive;
+                        pos+=2;
+                        break;
+                    }
+                    ++pos;
+                    break;
+                }
+            }
+            TryItem* tryItem;
+            if(resolver->tryMap != nullptr &&
+               (tryItem= resolver->tryMap->seekTry(thisPos)) != nullptr){
+                //JumpNode* node=curNode->nextNode;
+                if(isLog){
+                    LOGV("Into try dispatch,try pos=%u",lastPos);
+                    for(int j=0;j<tryItem->handlerSize;++j){
+                        LOGV("Handler%d at pos %u",j,tryItem->handlers[j].offset);
+                    }
+                }
+                for(int j=0;j<tryItem->handlerSize;++j){
+                    u4 offset=tryItem->handlers[j].offset;
+                    if(forkNode(code, curNode, lastRange, pos - 1, offset+1/*the move exception code is skipped*/, clsName)){
+                        if(*((u1*)&insns[offset])!=moveExcept){
+                            LOGE("Move Exception unexpected ,offset=%u op=%u,pre=%u,handler pos=%d",offset,*((u1*)&insns[offset]),(u1) (insns[offset] >> 8),j);
+                            throw std::out_of_range("");
+                        }
+                        u1 reg= (u1) (insns[offset] >> 8);/*the move exception code*/
+                        resolver->checkRegRange(reg);
+                        curNode->nextNode->registerTypes[reg]=tryItem->handlers[j].typeIdx;/*pre set exception type*/
+                    }
 
+                }
             }
+            lastPos=thisPos;
+        }catch (std::out_of_range& e){
+            LOGE("Meet out of range msg=%s,Op=0x%x pos=0x%x preData=0x%x,cls=%s,m=%s",e.what(),opCode,pos,preData,clsName,methodName);
+            throw e;
         }
-        lastPos=thisPos;
+
+
     }
     EndPoint:
         if(isLog)LOGV("Goto end point");
@@ -654,7 +713,6 @@ void* CodeResolver::runResolver(void *args) {
     pwrite(fd,insns,(u8)code->insns_size_in_code_units_<<1,resolver->fileOffset);
     close(fd);
     if(isLog)LOGV("Write insns Over");
-    //delete [] insns;
     //LOGV("Loop Over end analysis,%p %p %p %p",resolver,resolver->tryMap,resolver->toolsClass,resolver->env);
     delete resolver;
      LOGV("Resolver Deleted");
@@ -675,10 +733,10 @@ void CodeResolver::alterField(const CodeResolver::JumpNode *curNode,
 
 void CodeResolver::changeIdx( u2 *insns, u4 pos, u4 Idx) const {
     if(Idx == UNDEFINED){
-        char* sig=getProtoSig(dexGlobal.dexFile->proto_ids_[methodId->proto_idx_],dexGlobal.dexFile->type_ids_,dexGlobal.dexFile->string_ids_,dexGlobal.dexFile->begin_);
-        LOGW("Unable to find index at pos%u;class=%s,method=%s%s",pos, getStringFromStringId(dexGlobal.dexFile->
-                string_ids_[dexGlobal.dexFile->type_ids_[methodId->class_idx_].descriptor_idx_],dexGlobal.dexFile->begin_), getStringFromStringId(
-                dexGlobal.dexFile->string_ids_[methodId->name_idx_],dexGlobal.dexFile->begin_),sig);
+        char* sig=getProtoSig(dexGlobal.dexFile->proto_ids_[methodId->proto_idx_],dexGlobal.dexFile);
+        LOGW("Unable to find index at pos%u;class=%s,method=%s%s",pos,
+             dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_),
+             dexGlobal.dexFile->getStringByStringIndex(methodId->name_idx_),sig);
         delete[] sig;
     }else insns[pos+1]= (u2) Idx;
 }
@@ -711,14 +769,13 @@ bool CodeResolver::pend() {
         globalRef.clsTypeIdx=UNDEFINED;
         for(u4 i=0,N=dexGlobal.dexFile->header_->type_ids_size_;i<N&&(globalRef.
                 strTypeIdx == UNDEFINED||globalRef.clsTypeIdx==UNDEFINED);++i){
-            if(strcmp(getStringFromStringId(dexGlobal.dexFile->string_ids_
-                                            [dexGlobal.dexFile->type_ids_[i].descriptor_idx_],dexGlobal.dexFile->begin_),
+            auto className=dexGlobal.dexFile->getStringFromTypeIndex(i);
+            if(strcmp(className,
                       "Ljava/lang/String;")==0){
                 globalRef.strTypeIdx=i;
                 LOGV("meet str type idx=%d",i);
             }
-            if(strcmp(getStringFromStringId(dexGlobal.dexFile->string_ids_
-                                            [dexGlobal.dexFile->type_ids_[i].descriptor_idx_],dexGlobal.dexFile->begin_),
+            if(strcmp(className,
                       "Ljava/lang/Class;")==0){
                 globalRef.clsTypeIdx=i;
                 LOGV("meet class type idx=%d",i);
@@ -751,15 +808,21 @@ void CodeResolver:: initTries() {
         if(hCount<0)hCount=-hCount;
         tryItem->handlerSize= (u4) (hasCatchAll + hCount);
         tryItem->handlers=new Handler[tryItem->handlerSize];
+
         for(int j=0;j<hCount;++j){
-            int typeIdx=readUnsignedLeb128(ptr,size);
-            int address=readUnsignedLeb128(ptr,size);
-            tryItem->handlers[i].typeIdx= (u4) typeIdx;
-            tryItem->handlers[i].offset= (u4) address;
+            int typeIdx=readUnsignedLeb128(size,ptr);
+            int address=readUnsignedLeb128(size,ptr);
+            if((u4)address>codeItem->insns_size_in_code_units_){
+                LOGE("Bad try handler address=%d,max=%u",address,codeItem->insns_size_in_code_units_) ;
+                throw std::out_of_range("");
+            }
+            tryItem->handlers[j].typeIdx= (u4) typeIdx;
+            tryItem->handlers[j].offset= (u4) address;
+
         }
         if(hasCatchAll){
             tryItem->handlers[hCount].typeIdx=TypeException;
-            tryItem->handlers[hCount].offset= (u4) readUnsignedLeb128(ptr, size);
+            tryItem->handlers[hCount].offset= (u4) readUnsignedLeb128(size,ptr);
         }
     }
     tryMap=new TryMap(tries,codeItem->tries_size_);
@@ -809,11 +872,10 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
         return UNDEFINED;
     }
     if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
-    const char*clsName =getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_[clsIdx].descriptor_idx_],dexGlobal. dexFile->begin_);
+    const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
     if(clsName[0]!='L'){
         LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
-        LOGW("Invalid class Foundm name=%s c=%s ",clsName,getStringFromStringId(
-                dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_[thizTypeIdx].descriptor_idx_],dexGlobal. dexFile->begin_));
+        LOGW("Invalid class Foundm name=%s c=%s ",clsName,dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx));
         return UNDEFINED;
     }
     char* javaclsName =toJavaClassName(clsName);
@@ -842,14 +904,13 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     //LOGV("Start compare method in dex,cls=%s,name=%s,sig=%s",cls,mName,proto);
     for(u4 i=0;i<dexGlobal.dexFile->header_->method_ids_size_;++i){
         const art::DexFile::MethodId& mid=dexGlobal.dexFile->method_ids_[i];
-        const char* thizClass=getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_[mid.class_idx_].
-                descriptor_idx_],dexGlobal.dexFile->begin_);
+        const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(mid.class_idx_);
         if(strcmp(cls,thizClass)!=0&&strcmp(clsName,thizClass)!=0) continue;
         //LOGV("Compare Name");
-        const char* name=getStringFromStringId(dexGlobal.dexFile->string_ids_[mid.name_idx_],dexGlobal.dexFile->begin_);
+        const char* name=dexGlobal.dexFile->getStringByStringIndex(mid.name_idx_);
         if(strcmp(name,mName)!=0) continue;
         std::string protoString;
-        getProtoString(dexGlobal.dexFile->proto_ids_[mid.proto_idx_],dexGlobal.dexFile->type_ids_,dexGlobal.dexFile->string_ids_,dexGlobal.dexFile->begin_,protoString);
+        getProtoString(dexGlobal.dexFile->proto_ids_[mid.proto_idx_],dexGlobal.dexFile,protoString);
         if(protoString.compare(proto)==0){
             return i;
         }
@@ -858,11 +919,10 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
 }
 u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
 
-    const char*clsName =getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_[clsIdx].descriptor_idx_],dexGlobal. dexFile->begin_);
+    const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
     if(clsName[0]!='L'){
         LOGV("Qfield classIdx=%u,vIdx=%x",clsIdx,fieldOffset);
-        LOGW("Invalid class Found f=%s",getStringFromStringId(
-                dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_[thizTypeIdx].descriptor_idx_],dexGlobal. dexFile->begin_));
+        LOGW("Invalid class Found f=%s",dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx));
     }
     const char*javaClsName =toJavaClassName(clsName);
 
@@ -889,13 +949,12 @@ u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
     if(isLog)LOGV("Start find field in dex,%s %s %s",cls,fName,typeName);
     for(u4 i=0;i<dexGlobal.dexFile->header_->file_size_;++i){
         const art::DexFile::FieldId&fid =dexGlobal.dexFile->field_ids_[i];
-        const char* thizClass=getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->
-                type_ids_[fid.class_idx_].descriptor_idx_],dexGlobal.dexFile->begin_);
+        const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(fid.class_idx_);
         if(strcmp(cls,thizClass)!=0&&strcmp(thizClass,clsName)!=0)
             continue;
-        const char* name=getStringFromStringId(dexGlobal.dexFile->string_ids_[fid.name_idx_], dexGlobal.dexFile->begin_);
+        const char* name=dexGlobal.dexFile->getStringByStringIndex(fid.name_idx_);
         if(strcmp(name,fName)!=0) continue;
-        const char* type=getStringFromStringId(dexGlobal.dexFile->string_ids_[dexGlobal.dexFile->type_ids_[fid.type_idx_].descriptor_idx_],dexGlobal.dexFile->begin_);
+        const char* type=dexGlobal.dexFile->getStringFromTypeIndex(fid.type_idx_);
         if(strcmp(type,typeName)!=0)
             LOGW("Type Mismatch field%s.%s:%s,should be type:%s",cls,name,typeName,typeName);
         else{

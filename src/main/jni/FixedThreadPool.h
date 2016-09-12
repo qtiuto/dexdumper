@@ -5,7 +5,6 @@
 #ifndef HOOKMANAGER_FIXEDTHREADPOOL_H
 #define HOOKMANAGER_FIXEDTHREADPOOL_H
 
-#include <pthread.h>
 #include <time.h>
 #include <sys/time.h>
 #include <atomic>

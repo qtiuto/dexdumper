@@ -1,5 +1,6 @@
 ./obj/local/mips/objs/dex_dump/FixedThreadPool.o: jni/FixedThreadPool.cpp \
   jni/FixedThreadPool.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\time.h \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\atomic \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__config \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstddef \
@@ -23,6 +24,7 @@
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\initializer_list \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\tuple \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstring \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\string.h \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__undef_min_max \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\string \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdio \
@@ -41,10 +43,11 @@
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__bit_reference \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\climits \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__split_buffer \
-  jni/base/macros.h jni/invoke_type.h jni/jni.h jni/modifiers.h \
-  jni/base/hash_map.h jni/base/hash_set.h jni/android/log.h
+  jni/invoke_type.h jni/jni.h jni/modifiers.h jni/android/log.h
 
 jni/FixedThreadPool.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\time.h:
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\atomic:
 
@@ -98,6 +101,8 @@ D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\tuple:
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstring:
 
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\string.h:
+
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__undef_min_max:
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\string:
@@ -134,16 +139,10 @@ D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\climits
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__split_buffer:
 
-jni/base/macros.h:
-
 jni/invoke_type.h:
 
 jni/jni.h:
 
 jni/modifiers.h:
-
-jni/base/hash_map.h:
-
-jni/base/hash_set.h:
 
 jni/android/log.h:

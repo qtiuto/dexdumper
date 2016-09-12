@@ -4,57 +4,41 @@
 
 #include "Tools.h"
 
-std::string &getProtoString(const art::DexFile::ProtoId &protoId,
-                            const art::DexFile::TypeId *typeIds,
-                            const art::DexFile::StringId *stringIds, const u1 *begin,
-                            std::string &protoType);
 
-char* getProtoSig(const art::DexFile::ProtoId& protoId, const art::DexFile::TypeId* typeIds,
-                  const art::DexFile::StringId* stringIds, const u1* begin){
+char* getProtoSig(const art::DexFile::ProtoId& protoId, const art::DexFile* dexFile){
     using namespace art;
     std::string protoType("(");
-    getProtoString(protoId, typeIds, stringIds, begin, protoType);
+    getProtoString(protoId,dexFile, protoType);
     protoType+=")";
-    const DexFile::TypeId& typeId=typeIds[protoId.return_type_idx_];
-    const char* protoString=getStringFromStringId(stringIds[typeId.descriptor_idx_],begin);
+    const char* protoString=dexFile->getStringFromTypeIndex(protoId.return_type_idx_);
     protoType+=protoString;
     char* buf=new char[protoType.length()+1];
     strncpy(buf,protoType.c_str(),protoType.length()+1);
     return buf;
 }
 
-std::string &getProtoString(const art::DexFile::ProtoId &protoId,
-const art::DexFile::TypeId *typeIds,
-const art::DexFile::StringId *stringIds, const u1 *begin,
-std::string &protoType) {
+std::string &getProtoString(const art::DexFile::ProtoId &protoId,const art::DexFile* dexFile,std::string &protoType) {
     if(protoId.parameters_off_ != 0){
-        const art::DexFile::TypeList* list= reinterpret_cast<const art::DexFile::TypeList*>(protoId.parameters_off_ + begin);
+        const art::DexFile::TypeList* list= reinterpret_cast<const art::DexFile::TypeList*>(protoId.parameters_off_ + dexFile->begin_);
         int size=list->Size();
         for(u4 i=0;i<size;++i){
             const art::DexFile::TypeItem &item=list->GetTypeItem(i);
-            const art::DexFile::TypeId &typeId=typeIds[item.type_idx_];
-            const char* protoString=getStringFromStringId(stringIds[typeId.descriptor_idx_],begin);
-            protoType+=protoString;
+            protoType+=dexFile->getStringFromTypeIndex(item.type_idx_);
         };
     }
     return protoType;
 }
 void logMethod(const art::DexFile::MethodId& methodId, const art::DexFile* dexFile){
-    char* sig=getProtoSig(dexFile->proto_ids_[methodId.proto_idx_],dexFile->type_ids_,dexFile->string_ids_,dexFile->begin_);
-    LOGW("Log method class=%s method=%s%s", getStringFromStringId(dexFile->
-            string_ids_[dexFile->type_ids_[methodId.class_idx_].descriptor_idx_],dexFile->begin_), getStringFromStringId(
-            dexFile->string_ids_[methodId.name_idx_],dexFile->begin_),sig);
+    char* sig=getProtoSig(dexFile->proto_ids_[methodId.proto_idx_],dexFile);
+    LOGW("Log method class=%s method=%s%s", dexFile->getStringFromTypeIndex(methodId.class_idx_),
+         dexFile->getStringByStringIndex(methodId.name_idx_),sig);
     delete [] sig;
 }
-const char* getStringFromStringId(const art::DexFile::StringId& stringId,const u1* begin){
-    int size;const u1* ptr=begin + stringId.string_data_off_;
-    readUnsignedLeb128(size,ptr);
-    return (const char*)ptr;
-}
+
 char *toJavaClassName(const char *clsChars) {
-    int len= strlen(clsChars) -1;
+    int len= (int) (strlen(clsChars) - 1);
     char *fixedClssName=new char[len];
-    memcpy(fixedClssName,clsChars+1,len);
+    memcpy(fixedClssName,clsChars+1, (size_t) len);
     fixedClssName[len-1]='\0';
     while (*fixedClssName!='\0'){
         if(*fixedClssName=='/')
@@ -134,7 +118,7 @@ int readSignedLeb128(int& size,const u1 *&ptr){
                      * range here, meaning we tolerate garbage in the
                      * high four-order bits.
                      */
-                    cur = *(ptr++);
+                    cur = *(ptr);
                     result |= cur << 28;
                     ++size;
                 }
@@ -198,4 +182,20 @@ int parsePositiveDecimalInt(const  char *str) {
         ++str;
     }
     return value;
+}
+void skipULeb128(const uint8_t *&ptr){
+    if (*ptr++ > 0x7f){
+        if (*ptr++>0x7f){
+            if (*ptr++>0x7f){
+                if (*ptr++>0x7f){
+                    /*
+                     * Note: We don't check to see if cur is out of
+                     * range here, meaning we tolerate garbage in the
+                     * high four-order bits.
+                     */
+                    ++ptr;
+                }
+            }
+        }
+    }
 }

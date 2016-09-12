@@ -2,9 +2,7 @@
 // Created by asus on 2016/8/21.
 //
 
-#include <asm-generic/siginfo.h>
 #include "FixedThreadPool.h"
-#include "Tools.h"
 
 void FixedThreadPool::execute( void *args) {
     pthread_mutex_lock(&queueMutex);
@@ -75,17 +73,6 @@ volatile FixedThreadPool::Element* FixedThreadPool::pollNewTask() {
     return newElement;
 }
 void* FixedThreadPool::threadFunc(void *args) {
-    /*struct sigaction act,old;
-    sigemptyset(&act.sa_mask);
-    // Use the sa_sigaction field because the handles has two additional parameters
-    act.sa_sigaction = atThreadCrash;
-    // The SA_SIGINFO flag tells sigaction() to use the sa_sigaction field, not sa_handler.
-    act.sa_flags = SA_SIGINFO;
-
-    if(!sigaction(SIGSEGV,&act,&old)){
-        perror("Set up sig handler failed at fixed thread pool");
-        return nullptr;
-    }*/
 
     FixedThreadPool* pool= (FixedThreadPool *) args;
     if(pool->onInit!= nullptr){
@@ -108,6 +95,3 @@ void* FixedThreadPool::threadFunc(void *args) {
     }
     return nullptr;
 }
-/*void FixedThreadPool::atThreadCrash(int sig, siginfo_t *siginfo, void *context) {
-
-}*/

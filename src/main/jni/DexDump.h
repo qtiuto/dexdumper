@@ -170,8 +170,6 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
 static void putAnnoSetItem( std::vector<::DataSection *>& dataSection,DataSection* par,
                             u4 parOffset,const art::DexFile::AnnotationSetItem* setItem, u1* begin) ;
 
-void handleJniCrash(JNIEnv *env,int sig, void *extra);
-
 static bool judgeVersion(const unsigned char* str);
 
 static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem);

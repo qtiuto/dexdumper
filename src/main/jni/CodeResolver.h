@@ -267,11 +267,13 @@ private:
             }
             if(nextRange->preRange->end!=nextRange->start-1){
                 LOGE("Not concated range!,curEnd=%u,newStart=%u",
-                     nextRange->preRange->end,nextRange->start-1);
-                lastRange->printRange();
+                     nextRange->preRange->end,(lastRange->printRange(),nextRange->start-1));
+                throw std::exception();
             }
             if (pos>=nextRange->start){
-               nextRange=seekNextRange(nextRange,lastRange);
+                nextRange=seekNextRange(nextRange,lastRange);
+                if(nextRange!= nullptr)
+                    nextRange->preRange->end=nextRange->start-1;//should it just be ended?
             }
 
         }
@@ -295,7 +297,7 @@ private:
         void printRange(){
             Range* range=this;
             do{
-                LOGV("Range from %u to %u",range->start,range->end);
+                LOGE("Range from %u to %u",range->start,range->end);
             }while ((range=range->preRange)!= nullptr);
         }
     };
@@ -326,7 +328,7 @@ private:
         }
     public:
         TryMap(TryItem* tries,int size):tries(tries),size(size){
-            qsort(tries,size, sizeof(TryItem),tryItemCompare);
+            qsort(tries, (size_t) size, sizeof(TryItem), tryItemCompare);
             start=tries[0].pos;
             end=tries[size-1].pos;
             if(size<=4) isMapped= false;
@@ -367,6 +369,12 @@ private:
     u4 getFiledFromOffset(u4 clsIdx, u4 fieldOffset);
     void initTries();
     void initRegisters(u4* registers);
+    void checkRegRange(u4 index){
+        if(index>=codeItem->registers_size_){
+            LOGE("reg index out of range,index=%u,max=%u",index,codeItem->registers_size_);
+            throw std::out_of_range("");
+        }
+    }
     static void threadInit();
     static void* runResolver(void* args);
     static void threadDestroy();
