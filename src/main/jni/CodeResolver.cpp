@@ -62,14 +62,14 @@ void* CodeResolver::runResolver(void *args) {
         throw "Polluted method pointer";
     }
     const char *methodName=dexGlobal.dexFile->getStringByStringIndex(resolver->methodId->name_idx_);
-    //if(equals("Lcom/c/a/d/e;",clsName)) isLog= true;
-    ::isLog=isLog;
+    /*if(equals("Lcom/uc/shopping/ah;",clsName)){
+        isLog= true;
+        ::isLog= true;
+    }*/
 
     char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
-    if (isLog)
-        LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s", resolver->methodId->class_idx_,
-             clsName,
-             methodName, sig);
+    LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s",
+         resolver->methodId->class_idx_, clsName, methodName, sig);
     delete [] sig;
     resolver->initTries();
     const art::DexFile::CodeItem* code= resolver->codeItem;
@@ -354,7 +354,9 @@ void* CodeResolver::runResolver(void *args) {
                 case agetBoolean:
                 case agetByte:
                 case agetChar:
-                case agetShort:
+                case agetShort: {
+                    //should I check npe?
+                }
                 case sget:
                 case sgetBoolean:
                 case sgetByte:
@@ -387,6 +389,10 @@ void* CodeResolver::runResolver(void *args) {
                     ins= (u1 *) &insns[pos + 1];
                     resolver->checkRegRange(*ins);
                     u4 arrayType=curNode->registerTypes[*ins];
+                    if (arrayType == TypePrimitive) {
+                        isNpeReturn = true;
+                        goto Next;
+                    }
                     u4 type = UNDEFINED;
                     const char* typeName=dexGlobal.dexFile->getStringFromTypeIndex(arrayType);
                     if(typeName[0]=='['){
@@ -398,6 +404,8 @@ void* CodeResolver::runResolver(void *args) {
                             auto dexFile = dexGlobal.dexFile;
                             binarySearchType(typeName + 1, type, dexFile);
                             if (type == UNDEFINED) {
+                                LOGW("Can't find array component type woth name %s by binary search,loop find",
+                                     typeName + 1);
                                 // for unordered dexFile;
                                 for (u4 i = 0, N = dexFile->header_->type_ids_size_; i < N; ++i) {
                                     if (strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
@@ -461,7 +469,9 @@ void* CodeResolver::runResolver(void *args) {
                 case aputBoolean:
                 case aputByte:
                 case aputChar:
-                case aputShort:
+                case aputShort: {
+                    //should I check npe?
+                }
                 case sput:
                 case sputW:
                 case sputOb:
@@ -786,12 +796,10 @@ bool CodeResolver::pend() {
                 if (strcmp(className,
                            "Ljava/lang/String;") == 0) {
                     globalRef.strTypeIdx = i;
-                    LOGV("meet str type idx=%d", i);
                 }
                 if (strcmp(className,
                            "Ljava/lang/Class;") == 0) {
                     globalRef.clsTypeIdx = i;
-                    LOGV("meet class type idx=%d", i);
                 }
             }
         } else {
@@ -799,12 +807,13 @@ bool CodeResolver::pend() {
                 if (strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
                            "Ljava/lang/Class;") == 0) {
                     globalRef.clsTypeIdx = i;
-                    LOGV("meet class type idx=%d", i);
+
                     break;
                 }
             }
         }
-
+        LOGV("meet str type idx=%d", globalRef.strTypeIdx);
+        LOGV("meet class type idx=%d", globalRef.clsTypeIdx);
     }
     dexGlobal.initPoolIfNeeded(runResolver,threadInit,threadDestroy);
     dexGlobal.pool->submit(this);
@@ -894,7 +903,7 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
         LOGW("Unexpected type TypeException,as catch all has no type specified");
         return UNDEFINED;
     }
-    if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
+    //if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
     const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
     if (clsName[0] != 'L' && clsName[0] !=
                              '[') {//Array type is namely sub-type of object,so inherit all the virtual methods of object
@@ -910,7 +919,6 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     delete[] cClassName;
     if(javaMethod==NULL)
         return UNDEFINED;
-    //LOGV("Vmethod, methodid found=%p",methodID);
     jbyteArray result = (jbyteArray) env->CallStaticObjectMethod(dexGlobal.getToolsClass(),
                                                                  dexGlobal.getConvertMember(),
                                                                  javaMethod);
@@ -930,7 +938,8 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     retType = sp + 1;
     sp = strchr(retType, '|');
     *sp='\0';proto=sp+1;
-    //LOGV("Start compare method in dex,cls=%s,name=%s,sig=(%s)%s",cls,mName,proto,retType);
+    if (isLog)
+        LOGV("Start compare method in dex,cls=%s,name=%s,sig=(%s)%s", cls, mName, proto, retType);
 
     u4 low = 0, high = dexGlobal.dexFile->header_->method_ids_size_ - 1, middle;
     int value;

@@ -40,14 +40,16 @@ public final class ClassTools {
     //jni callback
     public static Class findClass(String className){
         try {
-            return Class.forName(className, true, loader);//in case loadClass does not work for array classes
+            return Class.forName(className, false, loader);//in case loadClass does not work for array classes
             // as I'm not sure will there be an implementation doesn't allow loading array classes directly;
+            // true may block thread
         } catch (Throwable e) {
             Utils.log(e.getMessage());
         }
         return null;
     }
-    public static synchronized Field getFieldFromOffset(String className, int offset) {
+
+    public static Field getFieldFromOffset(String className, int offset) {
        // Utils.logOslorde("Into get Field Offset c="+className+"offset="+offset);
         SparseArray<Field> fTable;
         if((fTable=cachedFTables.get(className))==null){
@@ -110,9 +112,11 @@ public final class ClassTools {
             }
         }
     }
-    public static synchronized Method getMethodFromIndex(String className, int methodIndex) {
+
+    public static Method getMethodFromIndex(String className, int methodIndex) {
         SparseArray<Method> vTable;
         if((vTable=cachedVTables.get(className))==null){
+            Utils.log("Into find class");
             Class cls=findClass(className);
             if(cls==null){
                 Utils.logE("Invalid class name m=" + className);

@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <vector>
 #include <atomic>
+#include <sstream>
 
 #include "globals.h"
 #include "invoke_type.h"
@@ -450,8 +451,11 @@ namespace art {
         }
         const char * getStringFromTypeIndex(u4 index)const {
             if (index >= header_->type_ids_size_) {
-
-                throw std::out_of_range("std::out_of_range:TypeIndex");
+                std::stringstream stringstream;
+                std::string result;
+                stringstream << "std::out_of_range:TypeIndex:" << index;
+                stringstream >> result;
+                throw std::out_of_range(result);
             }
             return getStringByStringIndex(type_ids_[index].descriptor_idx_);
         }

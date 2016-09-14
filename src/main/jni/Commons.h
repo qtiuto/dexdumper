@@ -2,14 +2,14 @@
 // Created by asus on 2016/8/16.
 //
 #include "Tools.h"
+#include "base/macros.h"
 #include "FixedThreadPool.h"
-#include "CodeResolver.h"
 #include <fcntl.h>
 #include <cstdlib>
 #include <sys/syscall.h>
 
-#ifndef HOOKMANAGER_OPTIONS_H
-#define HOOKMANAGER_OPTIONS_H
+#ifndef HOOKMANAGER_COMMONS_H
+#define HOOKMANAGER_COMMONS_H
 
 #define PACKED_SWITCH 1
 #define SPARSE_SWITCH 2
@@ -137,4 +137,5 @@ inline bool isArtNougat(){
 inline bool equals(const char* s1, const char* s2){
     return strcmp(s1,s2)==0;
 }
-#endif //HOOKMANAGER_OPTIONS_H
+
+#endif

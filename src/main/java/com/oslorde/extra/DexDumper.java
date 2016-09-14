@@ -20,6 +20,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.channels.FileChannel;
+import java.util.IdentityHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -142,7 +143,11 @@ public class DexDumper {
             sStorePath=storePath;
             if(mode>=0)setMode(mode);
             else setMode(DumpMode.MODE_LOOSE);
-            return dumpDexImpl( loader,mode);
+            try {
+                return dumpDexImpl(loader, mode);
+            } catch (Exception e) {
+                throw new DexDumpException(e);
+            }
         }else throw new DexDumpException("The store path can't be cleaned");
     }
 
@@ -198,42 +203,61 @@ public class DexDumper {
      * @param loader the lowest level classloader, despite hot patch.
      * @return whether the loader is able to be extract.
      */
-    private static boolean dumpDexImpl(ClassLoader loader,int mode){
+    private static boolean dumpDexImpl(ClassLoader loader, int mode) throws Exception {
         int sdkVer= Build.VERSION.SDK_INT;
         ClassTools.init(loader);
+        IdentityHashMap<ClassLoader, Object> loaders = new IdentityHashMap<>();
+        Out:
         do{
             if(!(loader instanceof BaseDexClassLoader)){
                 if (loader != null && !loader.getClass().getSimpleName().equals("BootClassLoader")) {
-                    Utils.logW("the final class loader is not of BootClassLoader, may there should be a fix to get proper classLoader");
+                    Utils.logW("the final class loader  is not BootClassLoader but " + loader.getClass().getName() + ". May there should be a fix to get proper classLoader");
+                    Utils.logW("Experimental fix start");
+                    Field[] fields = loader.getClass().getDeclaredFields();
+                    try {
+                        for (Field f : fields) {
+                            f.setAccessible(true);
+                            Object ob = f.get(loader);
+                            if (ob instanceof ClassLoader) {
+                                if (!loaders.containsKey(ob)) {
+                                    loader = (ClassLoader) ob;
+                                    continue Out;
+                                }
+                            }
+                        }
+                    } catch (IllegalAccessException e) {
+                        e.printStackTrace();
+                    }
                 }
                 // reach boot classloader or null or other.
                 break;
             }
-            try {
-                Field field= ReflectUtils.findField(BaseDexClassLoader.class,"pathList");
-                Object pathList=field.get(loader);
-                if(pathList==null){
-                    loader=loader.getParent();
-                    continue;
-                }
-                field=ReflectUtils.findField(pathList.getClass(),"dexElements");
-                Object dexElements=field.get(pathList);
-                if(dexElements==null){
-                    loader=loader.getParent();
-                    continue;
-                }
-                Class Element=dexElements.getClass().getComponentType();
-                Utils.log("elements count:"+Array.getLength(dexElements));
-                for(int i=0,length= Array.getLength(dexElements);i<length;++i){
-                    Object element=Array.get(dexElements,i);
-                    field=ReflectUtils.findField(Element,"dexFile");
-                    DexFile dexFile= (DexFile) field.get(element);
+            loaders.put(loader, null);
 
-                    String dexName=dexFile.getName();
-                    Utils.log("loader path"+i+" :"+dexName);
-                    FileOutputStream out;
-                    File file;
-                    //necessary?
+            Field field = ReflectUtils.findField(BaseDexClassLoader.class, "pathList");
+            Object pathList = field.get(loader);
+            if (pathList == null) {
+                loader = loader.getParent();
+                continue;
+            }
+            field = ReflectUtils.findField(pathList.getClass(), "dexElements");
+            Object dexElements = field.get(pathList);
+            if (dexElements == null) {
+                loader = loader.getParent();
+                continue;
+            }
+            Class Element = dexElements.getClass().getComponentType();
+            Utils.log("elements count:" + Array.getLength(dexElements));
+            for (int i = 0, length = Array.getLength(dexElements); i < length; ++i) {
+                Object element = Array.get(dexElements, i);
+                field = ReflectUtils.findField(Element, "dexFile");
+                DexFile dexFile = (DexFile) field.get(element);
+
+                String dexName = dexFile.getName();
+                Utils.log("loader path" + i + " :" + dexName);
+                FileOutputStream out;
+                File file;
+                //necessary?
                     /*Enumeration<String> classes=dexFile.entries();
                     file=new File(sStorePath,"Classes.txt");
                     out = new FileOutputStream(file,true);
@@ -249,71 +273,68 @@ public class DexDumper {
                         }
                     }
                     out.close();*/
-                    field=ReflectUtils.findField(DexFile.class,"mCookie");
-                    Object mCookie=field.get(dexFile);
-                    String realDexName;
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
-                        realDexName = dexName+System.lineSeparator();
-                    }else realDexName=dexName+'\n';
-                    if(dexName.startsWith("/data/")){
-                        dexName=dexName.substring(6);
+                field = ReflectUtils.findField(DexFile.class, "mCookie");
+                Object mCookie = field.get(dexFile);
+                String realDexName;
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+                    realDexName = dexName + System.lineSeparator();
+                } else realDexName = dexName + '\n';
+                if (dexName.startsWith("/data/")) {
+                    dexName = dexName.substring(6);
+                }
+                if (dexName.charAt(0) == '/') dexName = dexName.substring(1);
+                dexName = dexName.replace("_", "(-)");
+                dexName = dexName.replace('/', '_');
+                if (dexName.length() > 25) {
+                    dexName = dexName.substring(0, 25);
+                    dexName = dexName.concat("...");
+                }
+                String dexDir = sStorePath + '/' + dexName;
+                file = new File(dexDir);
+                if (!file.exists() && !file.mkdir()) {
+                    throw new DexDumpException("Error ocurred when make dexDir");
+                }
+                File storeInfoTxt = new File(dexDir, "DexInfo.txt");
+                if (storeInfoTxt.exists() && storeInfoTxt.isDirectory() && !storeInfoTxt.delete()) {
+                    throw new DexDumpException("Couldn't delete dir:" + storeInfoTxt.getPath());
+                }
+                try {
+                    out = new FileOutputStream(storeInfoTxt, true);
+                    out.write(realDexName.getBytes());
+                    out.close();
+                } catch (Exception e) {
+                    throw new DexDumpException("Error occured when writing dexName into DexInfo.txt", e);
+                }
+                if (isArray(mCookie)) {
+                    int N = Array.getLength(mCookie);
+                    Utils.log("Cookie Length:" + N);
+                    long[] dex_files = new long[N - DEX_FILE_START];
+                    for (int j = DEX_FILE_START; j < N; j++) {
+                        //the cookie may be int array(32 bit) or long array(64 bit).
+                        Number address = (Number) Array.get(mCookie, j);
+                        Utils.log("Address" + j + ":" + address);
+                        dex_files[j - DEX_FILE_START] = address.longValue();
                     }
-                    if(dexName.charAt(0)=='/') dexName=dexName.substring(1);
-                    dexName=dexName.replace("_","(-)");
-                    dexName=dexName.replace('/','_');
-                    if(dexName.length()>25){
-                        dexName=dexName.substring(0,25);
-                        dexName=dexName.concat("...");
-                    }
-                    String dexDir=sStorePath+'/'+dexName;
-                    file=new File(dexDir);
-                    if(!file.exists()&&!file.mkdir()){
-                        throw new DexDumpException("Error ocurred when make dexDir");
-                    }
-                    File storeInfoTxt=new File(dexDir,"DexInfo.txt");
-                    if(storeInfoTxt.exists()&&storeInfoTxt.isDirectory()&&!storeInfoTxt.delete()){
-                        throw new DexDumpException("Couldn't delete dir:"+storeInfoTxt.getPath());
-                    }
-                    try {
-                        out=new FileOutputStream(storeInfoTxt,true);
-                        out.write(realDexName.getBytes());
-                        out.close();
-                    }catch (Exception e){
-                        throw new DexDumpException("Error occured when writing dexName into DexInfo.txt",e);
-                    }
-                    if(isArray(mCookie)){
-                        int N=Array.getLength(mCookie);
-                        Utils.log("Cookie Length:"+N);
-                        long[] dex_files=new long[N-DEX_FILE_START];
-                        for(int j=DEX_FILE_START;j<N;j++){
-                            //the cookie may be int array(32 bit) or long array(64 bit).
-                            Number address= (Number) Array.get(mCookie,j);
-                            Utils.log("Address"+j+":"+address);
-                            dex_files[j-DEX_FILE_START]=address.longValue();
-                        }
-                        Utils.log("Detected SDK Int 23+, invoke dumpDexV23");
-                        dumpDexV23(dex_files,dexDir,sdkVer==24);
-                    }else if(mCookie instanceof Number){//sdk 21-22
-                        Utils.log("Address:"+mCookie);
-                        if(sdkVer>=21){
-                            Utils.log("Detected SDK Int 21-22, invoke dumpDexV21");
-                            dumpDexV21(((Number)mCookie).longValue(),dexDir,sdkVer==22);
-                        }else if (sdkVer>=19&&isArtInUse()){
-                            Utils.log("Detected Art in SDK Int 19-20, invoke dumpDexV19ForArt");
-                            dumpDexV19ForArt(((Number)mCookie).longValue(),dexDir);
-                        }else{
-                            Utils.log("Detected SDK Int 14-18, invoke dumpDexV14");
-                            dumpDexV14(((Number)mCookie).longValue(),dexDir);
-                        }
+                    Utils.log("Detected SDK Int 23+, invoke dumpDexV23");
+                    dumpDexV23(dex_files, dexDir, sdkVer == 24);
+                } else if (mCookie instanceof Number) {//sdk 21-22
+                    Utils.log("Address:" + mCookie);
+                    if (sdkVer >= 21) {
+                        Utils.log("Detected SDK Int 21-22, invoke dumpDexV21");
+                        dumpDexV21(((Number) mCookie).longValue(), dexDir, sdkVer == 22);
+                    } else if (sdkVer >= 19 && isArtInUse()) {
+                        Utils.log("Detected Art in SDK Int 19-20, invoke dumpDexV19ForArt");
+                        dumpDexV19ForArt(((Number) mCookie).longValue(), dexDir);
+                    } else {
+                        Utils.log("Detected SDK Int 14-18, invoke dumpDexV14");
+                        dumpDexV14(((Number) mCookie).longValue(), dexDir);
                     }
                 }
-
-            } catch (Exception e) {
-                Utils.log(e);
             }
+
             //reverse order, but no other influence.
             loader=loader.getParent();
-        }while (true);
+        } while (!loaders.containsKey(loader));
         ClassTools.clear();
 
         return true;

@@ -20,7 +20,7 @@ public class MainActivity extends Activity {
         String packageName = "com.jjwxc.reader";//for test only
         try {
             ApplicationInfo info=getPackageManager().getApplicationInfo(packageName,0);
-            DexLoader.install(info.sourceDir,getPackageName(),packageName);
+            //DexLoader.install(info.sourceDir,getPackageName(),packageName);
         } catch (PackageManager.NameNotFoundException e) {
             e.printStackTrace();
         }

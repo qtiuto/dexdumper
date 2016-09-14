@@ -5,11 +5,11 @@
 #ifndef HOOKMANAGER_CODERESOLVER_H
 #define HOOKMANAGER_CODERESOLVER_H
 
+#include <pthread.h>
+#include <unordered_map>
 #include "jni.h"
 #include "art-member.h"
-#include <pthread.h>
 #include "Commons.h"
-#include <unordered_map>
 #include "base/hash_map.h"
 #include "dalvik/Object.h"
 #include "dex_file.h"

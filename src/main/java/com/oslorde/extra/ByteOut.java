@@ -1,18 +1,16 @@
 package com.oslorde.extra;
 
-/**
- * Created by asus on 2016/9/13.
- */
+
 public class ByteOut {
     /**
      * The byte array containing the bytes written.
      */
-    protected byte[] buf;
+    private byte[] buf;
 
     /**
      * The number of bytes written.
      */
-    protected int count;
+    private int count;
 
     /**
      * Constructs a new ByteArrayOutputStream with a default size of 32 bytes.
