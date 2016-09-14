@@ -442,11 +442,17 @@ namespace art {
                 begin_(beg),size_(0),location_checksum_(0),location_(),header_(header),string_ids_(string_ids),type_ids_(type_ids),
                 field_ids_(field_ids),method_ids_(method_ids),proto_ids_(proto_ids),class_defs_(class_defs){}
         const char * getStringByStringIndex(const uint32_t index)const {
+            if (index >= header_->string_ids_size_)
+                throw std::out_of_range("std::out_of_range:MethodIdx");
             const byte * ptr= begin_ + string_ids_[index].string_data_off_;
             skipULeb128(ptr);
             return (const char *) ptr;
         }
         const char * getStringFromTypeIndex(u4 index)const {
+            if (index >= header_->type_ids_size_) {
+
+                throw std::out_of_range("std::out_of_range:TypeIndex");
+            }
             return getStringByStringIndex(type_ids_[index].descriptor_idx_);
         }
     private:

@@ -26,7 +26,9 @@ int unsignedLeb128Size(u4 data);
 u1* writeUnsignedLeb128(u1* ptr, u4 data);
 void writeUnsignedLeb128ToFile(int fd,u4 data,u4 f_offset);
 
-char* getProtoSig(const art::DexFile::ProtoId& protoId,const art::DexFile* dexFile);
+int dexUtf8Cmp(const char *s1, const char *s2);
+
+char *getProtoSig(const u4 index, const art::DexFile *dexFile);
 char *toJavaClassName(const char *clsChars);
 std::string &getProtoString(const art::DexFile::ProtoId &protoId,
                             const art::DexFile* dexFile, std::string &protoType);

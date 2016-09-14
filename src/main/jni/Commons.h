@@ -14,6 +14,7 @@
 #define PACKED_SWITCH 1
 #define SPARSE_SWITCH 2
 #define FILL_ARRAY_DATA 3
+
 enum DumpMode{
     MODE_LOOSE=0x0,
     MODE_DIRECT=0x1,
@@ -86,7 +87,8 @@ public:
         if(toolsClass== nullptr){
             jclass tools=env->FindClass("com/oslorde/extra/ClassTools");
             getFieldId= env->GetStaticMethodID(tools,"getFieldFromOffset","(Ljava/lang/String;I)Ljava/lang/reflect/Field;");
-            convertMemberId=env->GetStaticMethodID(tools,"convertMember","(Ljava/lang/reflect/Member;)Ljava/lang/String;");
+            convertMemberId = env->GetStaticMethodID(tools, "convertMember",
+                                                     "(Ljava/lang/reflect/Member;)[B");
             getMethodId=env->GetStaticMethodID(tools,"getMethodFromIndex","(Ljava/lang/String;I)Ljava/lang/reflect/Method;");
             toolsClass= (jclass) env->NewGlobalRef(tools);
             env->DeleteLocalRef(tools);

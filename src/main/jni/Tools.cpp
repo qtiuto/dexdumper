@@ -5,9 +5,14 @@
 #include "Tools.h"
 
 
-char* getProtoSig(const art::DexFile::ProtoId& protoId, const art::DexFile* dexFile){
+char *getProtoSig(const u4 index, const art::DexFile *dexFile) {
     using namespace art;
     std::string protoType("(");
+    if (index >= dexFile->header_->proto_ids_size_) {
+        LOGE("unexpected proto index %d", index);
+        throw std::out_of_range("std::out_of_range:ProtoIndex");
+    }
+    auto &protoId = dexFile->proto_ids_[index];
     getProtoString(protoId,dexFile, protoType);
     protoType+=")";
     const char* protoString=dexFile->getStringFromTypeIndex(protoId.return_type_idx_);
@@ -29,16 +34,19 @@ std::string &getProtoString(const art::DexFile::ProtoId &protoId,const art::DexF
     return protoType;
 }
 void logMethod(const art::DexFile::MethodId& methodId, const art::DexFile* dexFile){
-    char* sig=getProtoSig(dexFile->proto_ids_[methodId.proto_idx_],dexFile);
+    char *sig = getProtoSig(methodId.proto_idx_, dexFile);
     LOGW("Log method class=%s method=%s%s", dexFile->getStringFromTypeIndex(methodId.class_idx_),
          dexFile->getStringByStringIndex(methodId.name_idx_),sig);
     delete [] sig;
 }
 
 char *toJavaClassName(const char *clsChars) {
-    int len= (int) (strlen(clsChars) - 1);
+    bool notArray = clsChars[0] != '[';
+    int len = (int) (strlen(clsChars));
+    if (notArray) --len;
+    else ++len;
     char *fixedClssName=new char[len];
-    memcpy(fixedClssName,clsChars+1, (size_t) len);
+    memcpy(fixedClssName, clsChars + notArray, (size_t) len);
     fixedClssName[len-1]='\0';
     while (*fixedClssName!='\0'){
         if(*fixedClssName=='/')
@@ -48,6 +56,52 @@ char *toJavaClassName(const char *clsChars) {
     fixedClssName-=(len-1);
     return fixedClssName;
 }
+
+u2 dexGetUtf16FromUtf8(const char **pUtf8Ptr) {
+    unsigned int one, two, three;
+
+    one = *(*pUtf8Ptr)++;
+    if ((one & 0x80) != 0) {
+        /* two- or three-byte encoding */
+        two = *(*pUtf8Ptr)++;
+        if ((one & 0x20) != 0) {
+            /* three-byte encoding */
+            three = *(*pUtf8Ptr)++;
+            return (u2) (((one & 0x0f) << 12) |
+                         ((two & 0x3f) << 6) |
+                         (three & 0x3f));
+        } else {
+            /* two-byte encoding */
+            return (u2) (((one & 0x1f) << 6) |
+                         (two & 0x3f));
+        }
+    } else {
+        /* one-byte encoding */
+        return (u2) one;
+    }
+}
+
+int dexUtf8Cmp(const char *s1, const char *s2) {
+    for (; ;) {
+        if (*s1 == '\0') {
+            if (*s2 == '\0') {
+                return 0;
+            }
+            return -1;
+        } else if (*s2 == '\0') {
+            return 1;
+        }
+
+        int utf1 = dexGetUtf16FromUtf8(&s1);
+        int utf2 = dexGetUtf16FromUtf8(&s2);
+        int diff = utf1 - utf2;
+
+        if (diff != 0) {
+            return diff;
+        }
+    }
+}
+
 
  int readUnsignedLeb128(int &size,const u1 *&ptr) {
     int value=readUnsignedLeb128(ptr, size);

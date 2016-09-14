@@ -37,17 +37,25 @@ public class DexDumper {
 
     private static final int DEX_FILE_START;
     private static String sStorePath=Environment.getExternalStorageDirectory().getPath()+"/DexDump";
+    private static Method CurrentApplication;
+
     static {
         if(Build.VERSION.SDK_INT>=24){
             DEX_FILE_START=1;
         }else DEX_FILE_START=0;
 
     }
+
     private static native void dumpDexV21(long dex_vector,String outDir,boolean isMr1);
+
     private static native void dumpDexV23(long[] dex_arr,String outDir,boolean isNougat);
+
     private static native void dumpDexV14(long cookie,String outDir);
+
     private static native void dumpDexV19ForArt(long cookie,String outDir);
+
     private static native void setMode(int mode);
+
     /**
      *For now, multi-delegated classloader is unresolved.
      * @param loader the lowest level classloader, despite hot patch.
@@ -70,7 +78,7 @@ public class DexDumper {
         }
         if(!libDir.exists()&&!libDir.mkdir()){
             throw new DexDumpException(new IllegalArgumentException("The libDir"+libDir+" doesn't existed ,and can't be created"));
-        };
+        }
         if(libDir.exists()&&libDir.isFile()&&libDir.delete()&&libDir.mkdir()){
             throw new DexDumpException(new IllegalArgumentException("The libDir"+libDir+" is file ,and can't be re-created as directory"));
         }
@@ -121,7 +129,7 @@ public class DexDumper {
             }
         }else if(!fileChannelCopy(libSrc,libDst)) {
             throw new DexDumpException("Failed to copy library");
-        };
+        }
         try {
             System.load(libDst.getAbsolutePath());
         }catch (Throwable e){
@@ -159,10 +167,12 @@ public class DexDumper {
         File libDir=new File(Environment.getDataDirectory()+"/data/"+getPackageName()+"/libs/");
         return dumpDex(loader,storePath,null,libDir,null,mode);
     }
+
     private static boolean resetStorePath(String storePath){
         File file=new File(storePath);
         return (!file.exists()||Utils.rDelete(file))&&file.mkdirs();
     }
+
     private static String getPackageName(){
         try {
             return String.valueOf(Class.forName("android.app.ActivityThread").
@@ -172,7 +182,7 @@ public class DexDumper {
         }
         return "";
     }
-    private static Method CurrentApplication;
+
     private static Application getApplication(){
         try {
             if(CurrentApplication==null) CurrentApplication=Class.forName("android.app.ActivityThread").
@@ -192,7 +202,7 @@ public class DexDumper {
      */
     private static boolean dumpDexImpl(ClassLoader loader,int mode){
         int sdkVer= Build.VERSION.SDK_INT;
-        ClassTools.setLoader(loader);
+        ClassTools.init(loader);
         do{
             if(!(loader instanceof BaseDexClassLoader)){
                 if(!loader.getClass().getSimpleName().equals("BootClassLoader")){
@@ -305,6 +315,7 @@ public class DexDumper {
             //reverse order, but no other influence.
             loader=loader.getParent();
         }while (true);
+        ClassTools.clear();
 
         return true;
     }
@@ -331,10 +342,10 @@ public class DexDumper {
             e.printStackTrace();
         } finally {
             try {
-                fi.close();
-                in.close();
-                fo.close();
-                out.close();
+                if (fi != null) fi.close();
+                if (in != null) in.close();
+                if (fo != null) fo.close();
+                if (out != null) out.close();
             } catch (IOException e) {
                 e.printStackTrace();
             }

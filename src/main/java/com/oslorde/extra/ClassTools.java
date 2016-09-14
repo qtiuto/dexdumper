@@ -20,18 +20,31 @@ import java.util.WeakHashMap;
 
 
 public final class ClassTools {
+    private static ByteOut byteOut;
     private static ClassLoader loader;
-    private static Map<String,SparseArray<Field>> cachedFTables=new WeakHashMap<>(32);
-    private static Map<String,SparseArray<Method>> cachedVTables=new WeakHashMap<>(32);
-    public static void setLoader(ClassLoader loader) {
-        ClassTools.loader = loader;
-    }
+    private static Map<String, SparseArray<Field>> cachedFTables;
+    private static Map<String, SparseArray<Method>> cachedVTables;
+
     private static synchronized native int getFieldOffset(Field field);
     private static synchronized native int getMethodVIdx(Method method);
+
+    public static void init(ClassLoader loader) {
+        ClassTools.loader = loader;
+        byteOut = new ByteOut();
+        cachedFTables = new WeakHashMap<>(32);
+        cachedVTables = new WeakHashMap<>(32);
+    }
+
+    public static void clear() {
+        byteOut = null;
+        cachedFTables = null;
+        cachedVTables = null;
+    }
     //jni callback
     public static Class findClass(String className){
         try {
-            return loader.loadClass(className);//cached by system
+            return Class.forName(className, true, loader);//in case loadClass does not work for array classes
+            // as I'm not sure will there be an implementation doesn't allow loading array classes directly;
         } catch (Throwable e) {
             Utils.log(e.getMessage());
         }
@@ -52,32 +65,54 @@ public final class ClassTools {
         return fTable.get(offset);
     }
 
-    public static synchronized String convertMember(Member member){
+    public static synchronized byte[] convertMember(Member member) {
+        ByteOut out = byteOut;
         if(member instanceof Method){
             Method method= (Method) member;
-            StringBuilder retBuilder=new StringBuilder();
-            appendClassType(method.getDeclaringClass(),retBuilder);
-            retBuilder.append('|');
-            retBuilder.append(method.getName());
-            retBuilder.append('|');
+            appendClassType(method.getDeclaringClass(), out);
+            out.write('|');
+            writeMUtf8(method.getName(), out);
+            out.write('|');
+            appendClassType(method.getReturnType(), out);
+            out.write('|');
             Class[] paras=method.getParameterTypes();
             for(Class cl:paras){
-                appendClassType(cl,retBuilder);
+                appendClassType(cl, out);
             }
-            return retBuilder.toString();
-        }else if(member instanceof Field) {
+        } else {
             Field field= (Field) member;
-            StringBuilder retBuilder=new StringBuilder();
-            appendClassType(field.getDeclaringClass(),retBuilder);
-            retBuilder.append('|');
-            retBuilder.append(field.getName());
-            retBuilder.append('|');
-            appendClassType(field.getType(),retBuilder);
-            return retBuilder.toString();
+            appendClassType(field.getDeclaringClass(), out);
+            out.write('|');
+            writeMUtf8(field.getName(), out);
+            out.write('|');
+            appendClassType(field.getType(), out);
         }
-        return null;
+        out.write('\0');
+        byte[] ret = out.toByteArray();
+        out.reset();
+        return ret;
     }
 
+    //java is utf16 encoding
+    public static void writeMUtf8(String src, ByteOut out) {
+        int len = src.length();
+        char c;
+        for (int i = 0; i < len; ++i) {
+            c = src.charAt(i);
+            if (c != 0 && c <= 127) {
+                out.write(c);
+            } else {
+                if (c <= 2047) {
+                    out.write((byte) (0xc0 | (0x1f & (c >> 6))));
+                    out.write((byte) (0x80 | (0x3f & c)));
+                } else {
+                    out.write((byte) (0xe0 | (0x0f & (c >> 12))));
+                    out.write((byte) (0x80 | (0x3f & (c >> 6))));
+                    out.write((byte) (0x80 | (0x3f & c)));
+                }
+            }
+        }
+    }
     public static synchronized Method getMethodFromIndex(String className, int methodIndex) {
         //Utils.logOslorde("Java getMethod Invoked,clsName="+className+",vIdx="+methodIndex);
         SparseArray<Method> vTable;
@@ -270,27 +305,32 @@ public final class ClassTools {
         }
         return -1;
     }
-    private interface Weigher<T>{
-        boolean isTheSameWeight(T first, T sec);
+
+    private static void appendClassType(Class type, ByteOut out) {
+        Class component;
+        while ((component = type.getComponentType()) != null) {
+            out.write('[');
+            type = component;
+        }
+        if (type.isPrimitive()) {
+            if (type == int.class) out.write('I');
+            else if (type == boolean.class) out.write('Z');
+            else if (type == long.class) out.write('J');
+            else if (type == byte.class) out.write('B');
+            else if (type == float.class) out.write('F');
+            else if (type == double.class) out.write('D');
+            else if (type == char.class) out.write('C');
+            else if (type == short.class) out.write('S');
+            else if (type == void.class) out.write('V');
+        } else {
+            out.write('L');
+            writeMUtf8(type.getName().replace('.', '/'), out);
+            out.write(';');
+        }
     }
 
-    private static void appendClassType(Class type, StringBuilder builder){
-        Class component ;
-        while ((component=type.getComponentType())!=null){
-            builder.append('[');
-            type=component;
-        }
-        if(type.isPrimitive()){
-            if(type==int.class) builder.append('I');
-            else if(type==boolean.class) builder.append('Z');
-            else if(type==long.class) builder.append('J');
-            else if(type==byte.class) builder.append('B');
-            else if(type==float.class) builder.append('F');
-            else if(type==double.class) builder.append('D');
-            else if(type==char.class) builder.append('C');
-            else if(type==short.class) builder.append('S');
-            else if(type==void.class) builder.append('V');
-        } else builder.append('L').append(type.getName().replace('.','/')).append(';');
+    private interface Weigher<T> {
+        boolean isTheSameWeight(T first, T sec);
     }
 
     /*public static byte[] getMethodProtoString(Method method){

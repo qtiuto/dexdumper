@@ -62,11 +62,12 @@ void* CodeResolver::runResolver(void *args) {
         throw "Polluted method pointer";
     }
     const char *methodName=dexGlobal.dexFile->getStringByStringIndex(resolver->methodId->name_idx_);
-    //if(equals("Lcom/baidu/android/pushservice/d/a;",clsName)) isLog= true;
+    //if(equals("Lcom/c/a/d/e;",clsName)) isLog= true;
     ::isLog=isLog;
 
-    char* sig=getProtoSig(dexGlobal.dexFile->proto_ids_[resolver->methodId->proto_idx_],dexGlobal.dexFile);
-    LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s",resolver->thizTypeIdx, clsName,
+    char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
+    if (isLog)
+        LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s", resolver->thizTypeIdx, clsName,
     methodName, sig);
     delete [] sig;
     resolver->initTries();
@@ -90,11 +91,8 @@ void* CodeResolver::runResolver(void *args) {
             }
             Next:
             if(curNode->nextNode == nullptr){
-                //LOGV("End");
                 delete curNode;
-                //LOGV("End delete Node");
                 delete lastRange;
-                // LOGV("End Delete Range");
                 goto EndPoint;
             }
             if(isNpeReturn){
@@ -103,7 +101,7 @@ void* CodeResolver::runResolver(void *args) {
                 if(nextRange!= nullptr){
                     if(nextRange->preRange->preRange== nullptr){
                         LOGE("Unexpected npe at first range");
-                        //roll back;temperory
+                        //roll back;temperary
                         pos=0;
                     } else{
                         nextRange->preRange=nextRange->preRange->preRange;
@@ -179,7 +177,6 @@ void* CodeResolver::runResolver(void *args) {
                     resolver->checkRegRange(preData);
                     resolver->checkRegRange(insns[pos + 1]);
                     curNode->registerTypes[preData]=curNode->registerTypes[insns[pos + 1]];
-                    //if(isLog) LOGV("Reg%d updated by reg%d with %u",preData,insns[pos+1],curNode->registerTypes[insns[pos + 1]]);
                     pos +=2;break;
                 case move16LW:
                     resolver->checkRegRange(insns[pos + 1] + 1);
@@ -211,7 +208,7 @@ void* CodeResolver::runResolver(void *args) {
                         default:{
                             const art::DexFile::MethodId& methodId=
                                     dexGlobal.dexFile->method_ids_[insns[lastPos + 1]];
-                            if(isLog)logMethod(methodId, dexGlobal.dexFile);
+                            //if(isLog)logMethod(methodId, dexGlobal.dexFile);
                             resolver->checkRegRange(preData);
                             curNode->registerTypes[preData]= dexGlobal.dexFile->
                                     proto_ids_[methodId.proto_idx_].return_type_idx_;
@@ -311,11 +308,8 @@ void* CodeResolver::runResolver(void *args) {
                     u4 tablePos=pos+offset;
                     u2 size = insns[tablePos + 1];
                     int* targets=((int*)(insns+tablePos))+2;
-                    //LOGV("Meet packed switch size=%u offset=%d",size,offset);
                     for(int i=0;i<size;++i){
-                        if(forkNode(code, curNode, lastRange, thisPos + 2, pos + targets[i], clsName)){
-                            //LOGV("%s Target at %d=%u",clsName,i,pos+targets[i]);
-                        }
+                        forkNode(code, curNode, lastRange, thisPos + 2, pos + targets[i], clsName);
                     }
                     pos+=3;
                     break;
@@ -343,8 +337,8 @@ void* CodeResolver::runResolver(void *args) {
                 case ifGez:
                 case ifGtz:
                 case ifLez:
-                    forkNode(code, curNode, lastRange, pos + 1, pos + (int16_t)insns[pos + 1], clsName);
-                    //LOGV(" At pos =%u if new node fork offset= %d",pos,(int16_t) insns[pos + 1]);
+                    forkNode(code, curNode, lastRange, pos + 1,
+                             pos + (int16_t)/*avoid auto expand to u4*/insns[pos + 1], clsName);
                     pos+=2;
                     break;
                 case agetW:
@@ -362,7 +356,7 @@ void* CodeResolver::runResolver(void *args) {
                 case sgetChar:
                 case sgetShort:{
                     resolver->checkRegRange(preData);
-                    curNode->registerTypes[preData]=TypePrimitive;
+                    curNode->registerTypes[preData] = TypePrimitive;/*ignore primitive array as this operation has no effect on right code*/
                     pos+=2;break;
                 }
                 case igetW:
@@ -396,14 +390,29 @@ void* CodeResolver::runResolver(void *args) {
                         } else if(strcmp(typeName+1,"Ljava/lang/Class;")==0){
                             type=globalRef.clsTypeIdx;
                         } else{
+                            //can be optimized by cached and dexUtfCmp
                             const art::DexFile* dexFile=dexGlobal.dexFile;
-                            for(u4 i=0,N=dexFile->header_->type_ids_size_;i<N;++i){
-                                if(strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
-                                          typeName+1)==0){
-                                    type=i;
+                            u4 low = 0, high = dexFile->header_->type_ids_size_ - 1, mid;
+                            int value;
+                            while (low <= high) {
+                                mid = (low + high) >> 1;
+                                auto name = dexFile->getStringFromTypeIndex(mid);
+                                value = dexUtf8Cmp(name, typeName + 1);
+                                if (value == 0) {
+                                    type = mid;
                                     break;
-                                }
+                                } else if (value > 0) {
+                                    high = mid - 1;
+                                } else low = mid + 1;
                             }
+                            // for unordered dexFile;
+                            /* for(u4 i=0,N=dexFile->header_->type_ids_size_;i<N;++i){
+                                 if(strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
+                                           typeName+1)==0){
+                                     type=i;
+                                     break;
+                                 }
+                             }*/
                         }
                     } else{
                         LOGE("Illegal array type %s",typeName);
@@ -425,8 +434,6 @@ void* CodeResolver::runResolver(void *args) {
                     }
                     uint16_t typeIdx = dexGlobal.dexFile->
                             field_ids_[insns[pos+1]].type_idx_;
-                    //LOGV("reg=%u, updated with %u, referred by data %u",preData&0xf,typeIdx,insns[pos+1]);
-                    //usleep(50);
                     resolver->checkRegRange(preData&0xfu);
                     curNode->registerTypes[preData & 0xf]= typeIdx;
                     pos+=2;break;
@@ -434,8 +441,6 @@ void* CodeResolver::runResolver(void *args) {
                 case sgetOb:{
                     u4 type=dexGlobal.dexFile->
                             field_ids_[insns[pos+1]].type_idx_;
-                    //LOGV("reg=%u, updated with %u, referred by data %u",preData,type,insns[pos+1]);
-                    //usleep(50);
                     resolver->checkRegRange(preData);
                     curNode->registerTypes[preData]=type ;
                     pos+=2;break;
@@ -481,7 +486,6 @@ void* CodeResolver::runResolver(void *args) {
                     if(curNode->registerTypes[iReg]==TypePrimitive){
                         isNpeReturn= true;
                         //NullPointerException;
-                        LOGV("npe met");
                         goto Next;
                     }
                     pos+=3;
@@ -566,7 +570,7 @@ void* CodeResolver::runResolver(void *args) {
                     //LOGV("Meet invokeVirtualQ,regNum=%d",iReg);
                     resolver->checkRegRange(iReg);
                     u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[iReg], insns[pos + 1]);
-                    if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);
+                    //if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);
                     if(methodIdx==UNDEFINED) {
                         goto Next;
                     }
@@ -677,7 +681,6 @@ void* CodeResolver::runResolver(void *args) {
             TryItem* tryItem;
             if(resolver->tryMap != nullptr &&
                (tryItem= resolver->tryMap->seekTry(thisPos)) != nullptr){
-                //JumpNode* node=curNode->nextNode;
                 if(isLog){
                     LOGV("Into try dispatch,try pos=%u",lastPos);
                     for(int j=0;j<tryItem->handlerSize;++j){
@@ -689,7 +692,7 @@ void* CodeResolver::runResolver(void *args) {
                     if(forkNode(code, curNode, lastRange, pos - 1, offset+1/*the move exception code is skipped*/, clsName)){
                         if(*((u1*)&insns[offset])!=moveExcept){
                             LOGE("Move Exception unexpected ,offset=%u op=%u,pre=%u,handler pos=%d",offset,*((u1*)&insns[offset]),(u1) (insns[offset] >> 8),j);
-                            throw std::out_of_range("");
+                            throw std::out_of_range("std::out_of_range:moveExcept");
                         }
                         u1 reg= (u1) (insns[offset] >> 8);/*the move exception code*/
                         resolver->checkRegRange(reg);
@@ -699,8 +702,9 @@ void* CodeResolver::runResolver(void *args) {
                 }
             }
             lastPos=thisPos;
-        }catch (std::out_of_range& e){
-            LOGE("Meet out of range msg=%s,Op=0x%x pos=0x%x preData=0x%x,cls=%s,m=%s",e.what(),opCode,pos,preData,clsName,methodName);
+        } catch (std::exception &e) {
+            LOGE("Meet exception %s,Op=0x%x pos=0x%x preData=0x%x,cls=%s,m=%s", e.what(), opCode,
+                 pos, preData, clsName, methodName);
             throw e;
         }
 
@@ -709,31 +713,26 @@ void* CodeResolver::runResolver(void *args) {
     EndPoint:
         if(isLog)LOGV("Goto end point");
     int fd=open(dexGlobal.dexFileName,O_WRONLY);
-    //lseek(fd,resolver->fileOffset,SEEK_SET);
     pwrite(fd,insns,(u8)code->insns_size_in_code_units_<<1,resolver->fileOffset);
     close(fd);
     if(isLog)LOGV("Write insns Over");
     //LOGV("Loop Over end analysis,%p %p %p %p",resolver,resolver->tryMap,resolver->toolsClass,resolver->env);
     delete resolver;
-     LOGV("Resolver Deleted");
     //LOGV("Resolver deleted %s %s",clsName ,methodName);
-    //usleep(5000);
-    //LOGV("Vm thread to be detached %s %s",clsName,methodName);
     return nullptr;
 }
 
 void CodeResolver::alterField(const CodeResolver::JumpNode *curNode,
                                u2 *insns, u1 rOb, u4 pos) {
-    if(isLog)LOGV("Start get field offset rOb=%u,typeIdx=%u",rOb,curNode->registerTypes[rOb]);
+    //if(isLog)LOGV("Start get field offset rOb=%u,typeIdx=%u",rOb,curNode->registerTypes[rOb]);
     u4 fieldIdx =getFiledFromOffset(curNode->registerTypes[rOb], insns[pos + 1]);
-    if(isLog)LOGV("Field index Gotten %d",fieldIdx);
+    //if(isLog)LOGV("Field index Gotten %d",fieldIdx);
     changeIdx(insns, pos, fieldIdx);
-
 }
 
 void CodeResolver::changeIdx( u2 *insns, u4 pos, u4 Idx) const {
     if(Idx == UNDEFINED){
-        char* sig=getProtoSig(dexGlobal.dexFile->proto_ids_[methodId->proto_idx_],dexGlobal.dexFile);
+        char *sig = getProtoSig(methodId->proto_idx_, dexGlobal.dexFile);
         LOGW("Unable to find index at pos%u;class=%s,method=%s%s",pos,
              dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_),
              dexGlobal.dexFile->getStringByStringIndex(methodId->name_idx_),sig);
@@ -744,8 +743,8 @@ void CodeResolver::changeIdx( u2 *insns, u4 pos, u4 Idx) const {
 bool CodeResolver::forkNode(const art::DexFile::CodeItem *code, JumpNode *curNode, Range*lastRange, u4 lastPos,
                             u4 newPos, const char* curClass) {
     if(newPos>code->insns_size_in_code_units_){
-        LOGW("invalid new pos=%u at pos=%u cls=%s",newPos,lastPos,curClass);
-        return false;
+        LOGE("invalid new pos=%u at pos=%u cls=%s", newPos, lastPos, curClass);
+        throw std::out_of_range("std::out_of_range:newPos");
     }
     if(Range::checkRange(lastRange, newPos)){
         //LOGV("New Node Forked from %u to %u",lastPos,newPos);
@@ -760,7 +759,7 @@ bool CodeResolver::forkNode(const art::DexFile::CodeItem *code, JumpNode *curNod
 
 bool CodeResolver::pend() {
     if(codeItem== nullptr){
-        LOGW("The resolver are not initiated, init it at first");
+        LOGE("The resolver are not initiated, init it at first");
         return false;
     }
     if(globalRef.curDexFile== nullptr||globalRef.curDexFile!=dexGlobal.dexFile){
@@ -768,7 +767,15 @@ bool CodeResolver::pend() {
         globalRef.strTypeIdx=UNDEFINED;
         globalRef.clsTypeIdx=UNDEFINED;
         for(u4 i=0,N=dexGlobal.dexFile->header_->type_ids_size_;i<N&&(globalRef.
-                strTypeIdx == UNDEFINED||globalRef.clsTypeIdx==UNDEFINED);++i){
+                strTypeIdx == UNDEFINED || globalRef.clsTypeIdx == UNDEFINED);) {
+            if (i + 256 < N) {
+                auto nextClassName = dexGlobal.dexFile->getStringFromTypeIndex(i + 256);
+                //ok, as ascii is compatible.
+                if (strcmp(nextClassName, "Ljava/lang/String;") < 0) {
+                    i += 256;
+                    continue;
+                }
+            }
             auto className=dexGlobal.dexFile->getStringFromTypeIndex(i);
             if(strcmp(className,
                       "Ljava/lang/String;")==0){
@@ -780,6 +787,7 @@ bool CodeResolver::pend() {
                 globalRef.clsTypeIdx=i;
                 LOGV("meet class type idx=%d",i);
             }
+            ++i;
         }
 
     }
@@ -814,7 +822,7 @@ void CodeResolver:: initTries() {
             int address=readUnsignedLeb128(size,ptr);
             if((u4)address>codeItem->insns_size_in_code_units_){
                 LOGE("Bad try handler address=%d,max=%u",address,codeItem->insns_size_in_code_units_) ;
-                throw std::out_of_range("");
+                throw std::out_of_range("try handler");
             }
             tryItem->handlers[j].typeIdx= (u4) typeIdx;
             tryItem->handlers[j].offset= (u4) address;
@@ -873,94 +881,267 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     }
     if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
     const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
-    if(clsName[0]!='L'){
-        LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
-        LOGW("Invalid class Foundm name=%s c=%s ",clsName,dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx));
+    if (clsName[0] != 'L' && clsName[0] !=
+                             '[') {//Array type is namely sub-type of object,so inherit all the virtual methods of object
+        LOGE("Invalid class Foundm name=%s c=%s ", clsName,
+             dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx));
         return UNDEFINED;
     }
-    char* javaclsName =toJavaClassName(clsName);
-    if(isLog)LOGV("Vmethod cls name=%s", javaclsName);
-    jstring javaClassName=env->NewStringUTF(javaclsName);
+    char *cClassName = toJavaClassName(clsName);
+    if (isLog)LOGV("Vmethod cls name=%s", cClassName);
+    jstring javaClassName = env->NewStringUTF(cClassName);
     jobject javaMethod= env->CallStaticObjectMethod(dexGlobal.getToolsClass(), dexGlobal.getGetMethodID(), javaClassName,(jint) vIdx);
     env->DeleteLocalRef(javaClassName);
-    delete [] javaclsName;
+    delete[] cClassName;
     if(javaMethod==NULL)
         return UNDEFINED;
     jmethodID methodID=env->FromReflectedMethod(javaMethod);
-    if(isLog)LOGV("Vmethod, methodid found=%p",methodID);
-    jstring result= (jstring) env->CallStaticObjectMethod(dexGlobal.getToolsClass(), dexGlobal.getConvertMember(), javaMethod);
+    //LOGV("Vmethod, methodid found=%p",methodID);
+    jbyteArray result = (jbyteArray) env->CallStaticObjectMethod(dexGlobal.getToolsClass(),
+                                                                 dexGlobal.getConvertMember(),
+                                                                 javaMethod);
     env->DeleteLocalRef(javaMethod);
     jboolean isCopy;
-    const char* cStr=env->GetStringUTFChars(result, &isCopy);
-    char cls[strlen(cStr)+1];
-    char *mName,*proto;
+    char *cStr = (char *) env->GetPrimitiveArrayCritical(result, &isCopy);
+    char temp[strlen(cStr) + 1];
+    char *cls = temp;
     memcpy(cls,cStr,strlen(cStr)+1);
-    env->ReleaseStringUTFChars(result,cStr);
+    env->ReleasePrimitiveArrayCritical(result, cStr, 0);
+    char *mName, *retType, *proto;
     env->DeleteLocalRef(result);
     char* sp=strchr(cls,'|');
     *sp='\0'; mName=sp+1;
     sp=strchr(mName,'|');
+    *sp = '\0';
+    retType = sp + 1;
+    sp = strchr(retType, '|');
     *sp='\0';proto=sp+1;
-    //LOGV("Start compare method in dex,cls=%s,name=%s,sig=%s",cls,mName,proto);
-    for(u4 i=0;i<dexGlobal.dexFile->header_->method_ids_size_;++i){
-        const art::DexFile::MethodId& mid=dexGlobal.dexFile->method_ids_[i];
-        const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(mid.class_idx_);
-        if(strcmp(cls,thizClass)!=0&&strcmp(clsName,thizClass)!=0) continue;
-        //LOGV("Compare Name");
-        const char* name=dexGlobal.dexFile->getStringByStringIndex(mid.name_idx_);
-        if(strcmp(name,mName)!=0) continue;
-        std::string protoString;
-        getProtoString(dexGlobal.dexFile->proto_ids_[mid.proto_idx_],dexGlobal.dexFile,protoString);
-        if(protoString.compare(proto)==0){
-            return i;
+    //LOGV("Start compare method in dex,cls=%s,name=%s,sig=(%s)%s",cls,mName,proto,retType);
+
+    u4 low = 0, high = dexGlobal.dexFile->header_->method_ids_size_ - 1, middle;
+    int value;
+    value = dexUtf8Cmp(cls, clsName);
+    bool isTheSame = false;
+    bool exchanged = false;
+    if (value > 0) {
+        char *tmp = cls;
+        cls = (char *) clsName;
+        clsName = tmp;
+        exchanged = true;
+    } else if (value == 0) isTheSame = true;
+    while (low <= high) {
+        middle = (low + high) >> 1;
+        const art::DexFile::MethodId *mid = &dexGlobal.dexFile->method_ids_[middle];
+        const char *thizClass = dexGlobal.dexFile->getStringFromTypeIndex(mid->class_idx_);
+
+#define HandleZero(className)  value=dexUtf8Cmp(thizClass,className);\
+        if(value==0){\
+            value=dexUtf8Cmp(dexGlobal.dexFile->getStringByStringIndex(mid->name_idx_),mName);\
+            if(value==0){ \
+                const art::DexFile::ProtoId& protoId= dexGlobal.dexFile->proto_ids_[mid->proto_idx_];\
+                value=dexUtf8Cmp(dexGlobal.dexFile->getStringFromTypeIndex(protoId.return_type_idx_),retType);\
+                if(value==0){\
+                    std::string protoString;\
+                    getProtoString(protoId,dexGlobal.dexFile,protoString);\
+                    value=dexUtf8Cmp(&protoString[0],proto);\
+                    if(value==0)\
+                        return middle;\
+                }\
+            }\
+        }
+
+        HandleZero(cls);
+        if (value < 0) {
+            low = middle + 1;
+        } else {
+            if (isTheSame) {
+                high = middle - 1;
+                continue;
+            }
+            HandleZero(clsName);
+            if (value > 0) {
+                high = middle - 1;
+            } else {
+                u4 mid1 = middle, high1 = high;
+                high = middle - 1;
+#define MiddleSeek(className)\
+                while (low<=high){\
+                    middle=(low+high)>>1;\
+                    mid=&dexGlobal.dexFile->method_ids_[middle];\
+                    thizClass=dexGlobal.dexFile->getStringFromTypeIndex(mid->class_idx_);\
+                    HandleZero(className);\
+                    if(value<0){\
+                        low=middle+1;\
+                    } else{\
+                        high=middle-1;\
+                    }\
+                }
+
+                MiddleSeek(cls);
+                low = mid1 + 1;
+                high = high1;
+                MiddleSeek(clsName);
+#undef MiddleSeek
+#undef HandleZero
+                break;
+            }
         }
     }
+    if (exchanged) cls = (char *) clsName;
+    cls[strlen(cls)] = '|';
+    cls[strlen(cls)] = '|';
+    LOGE("Can't find method id for %s", cls);
+
+
+
+
+
+
+
+
+    /*  for(u4 i=0;i<dexGlobal.dexFile->header_->method_ids_size_;++i){
+          const art::DexFile::MethodId& mid=dexGlobal.dexFile->method_ids_[i];
+          const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(mid.class_idx_);
+          if(strcmp(cls,thizClass)!=0&&strcmp(clsName,thizClass)!=0) continue;
+          const char* name=dexGlobal.dexFile->getStringByStringIndex(mid.name_idx_);
+          if(strcmp(name,mName)!=0) continue;
+          std::string protoString;
+          getProtoString(dexGlobal.dexFile->proto_ids_[mid.proto_idx_],dexGlobal.dexFile,protoString);
+          if(protoString.compare(proto)==0){
+              return i;
+          }
+      }*/
     return UNDEFINED;
 }
 u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
-
     const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
-    if(clsName[0]!='L'){
-        LOGV("Qfield classIdx=%u,vIdx=%x",clsIdx,fieldOffset);
-        LOGW("Invalid class Found f=%s",dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx));
+    if (clsName[0] != 'L') {//only object type has field.
+        LOGE("Qfield Invalid class Found f=%s,classIdx=%u,vIdx=%x",
+             dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx), clsIdx, fieldOffset);
     }
-    const char*javaClsName =toJavaClassName(clsName);
+    const char *cClassName = toJavaClassName(clsName);
 
-    jstring javaClassName=env->NewStringUTF(javaClsName);
+    jstring javaClassName = env->NewStringUTF(cClassName);
     jobject javaFiled= env->CallStaticObjectMethod(dexGlobal.getToolsClass(),dexGlobal.getGetFieldID(), javaClassName,(jint) fieldOffset);
     env->DeleteLocalRef(javaClassName);
-    delete [] javaClsName;
+    delete[] cClassName;
     if(javaFiled==NULL)
         return UNDEFINED;
     if(isLog)LOGV("Start find field loop ");
-    jstring result= (jstring) env->CallStaticObjectMethod(dexGlobal.getToolsClass(), dexGlobal.getConvertMember(), javaFiled);
+    jbyteArray result = (jbyteArray) env->CallStaticObjectMethod(dexGlobal.getToolsClass(),
+                                                                 dexGlobal.getConvertMember(),
+                                                                 javaFiled);
     env->DeleteLocalRef(javaFiled);
     jboolean isCopy;
-    const char* cStr=env->GetStringUTFChars(result, &isCopy);
-    char cls[strlen(cStr)+1];
+    char *cStr = (char *) env->GetPrimitiveArrayCritical(result, &isCopy);
+    char temp[strlen(cStr) + 1];
+    char *cls = temp;
     char *fName,*typeName;
     memcpy(cls,cStr,strlen(cStr)+1);
-    env->ReleaseStringUTFChars(result,cStr);
+    env->ReleasePrimitiveArrayCritical(result, cStr, 0);
     env->DeleteLocalRef(result);
     char* sp=strchr(cls,'|');
     *sp='\0'; fName=sp+1;
     sp=strchr(fName,'|');
     *sp='\0';typeName=sp+1;
-    if(isLog)LOGV("Start find field in dex,%s %s %s",cls,fName,typeName);
-    for(u4 i=0;i<dexGlobal.dexFile->header_->file_size_;++i){
-        const art::DexFile::FieldId&fid =dexGlobal.dexFile->field_ids_[i];
-        const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(fid.class_idx_);
-        if(strcmp(cls,thizClass)!=0&&strcmp(thizClass,clsName)!=0)
-            continue;
-        const char* name=dexGlobal.dexFile->getStringByStringIndex(fid.name_idx_);
-        if(strcmp(name,fName)!=0) continue;
-        const char* type=dexGlobal.dexFile->getStringFromTypeIndex(fid.type_idx_);
-        if(strcmp(type,typeName)!=0)
-            LOGW("Type Mismatch field%s.%s:%s,should be type:%s",cls,name,typeName,typeName);
-        else{
-            return i;
-        } //it ok to cast it to u2 as the general method limit.
+    //LOGV("Start find field in dex,%s %s %s",cls,fName,typeName);
+
+    u4 low = 0, high = dexGlobal.dexFile->header_->field_ids_size_ - 1, middle;
+    int value;
+    value = dexUtf8Cmp(cls, clsName);
+    bool isTheSame = false;
+    bool exchanged = false;
+    if (value > 0) {
+        char *tmp = cls;
+        cls = (char *) clsName;
+        clsName = tmp;
+        exchanged = true;
+    } else if (value == 0) isTheSame = true;
+    while (low <= high) {
+        middle = (low + high) >> 1;
+        const art::DexFile::FieldId *fid = &dexGlobal.dexFile->field_ids_[middle];
+        const char *thizClass = dexGlobal.dexFile->getStringFromTypeIndex(fid->class_idx_);
+
+#define HandleZero(className)  value=dexUtf8Cmp(thizClass,className);\
+        if(value==0){\
+            const char* name=dexGlobal.dexFile->getStringByStringIndex(fid->name_idx_);\
+            value=dexUtf8Cmp(name,fName);\
+            if(value==0){\
+                const char* type=dexGlobal.dexFile->getStringFromTypeIndex(fid->type_idx_);\
+                value=dexUtf8Cmp(type,typeName);\
+                if(value!=0)\
+                    LOGE("Type Mismatch field%s.%s:%s,should be type:%s",cls,name,typeName,typeName);\
+                else\
+                    return middle;\
+            }\
+        }
+
+        HandleZero(cls);
+        if (value < 0) {
+            low = middle + 1;
+        } else {
+            if (isTheSame) {
+                high = middle - 1;
+                continue;
+            }
+            HandleZero(clsName);
+            if (value > 0) {
+                high = middle - 1;
+            } else {
+                u4 mid1 = middle, high1 = high;
+                high = middle - 1;
+#define MiddleSeek(className)\
+                while (low<=high){\
+                    middle=(low+high)>>1;\
+                    fid=&dexGlobal.dexFile->field_ids_[middle];\
+                    thizClass=dexGlobal.dexFile->getStringFromTypeIndex(fid->class_idx_);\
+                    HandleZero(className);\
+                    if(value<0){\
+                        low=middle+1;\
+                    } else{\
+                        high=middle-1;\
+                    }\
+                }
+
+                MiddleSeek(cls);
+                low = mid1 + 1;
+                high = high1;
+                MiddleSeek(clsName);
+#undef MiddleSeek
+#undef HandleZero
+                break;
+            }
+        }
     }
+    if (exchanged) cls = (char *) clsName;
+    cls[strlen(cls)] = '|';
+    cls[strlen(cls)] = '|';
+    LOGE("Can't find field id for %s", cls);
+
+
+
+
+
+
+
+
+
+
+
+    /* for(u4 i=0;i<dexGlobal.dexFile->header_->field_ids_size_;++i){
+         const art::DexFile::FieldId&fid =dexGlobal.dexFile->field_ids_[i];
+         const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(fid.class_idx_);
+         if(strcmp(cls,thizClass)!=0&&strcmp(thizClass,clsName)!=0)
+             continue;
+         const char* name=dexGlobal.dexFile->getStringByStringIndex(fid.name_idx_);
+         if(strcmp(name,fName)!=0) continue;
+         const char* type=dexGlobal.dexFile->getStringFromTypeIndex(fid.type_idx_);
+         if(strcmp(type,typeName)!=0)
+             LOGW("Type Mismatch field%s.%s:%s,should be type:%s",cls,name,typeName,typeName);
+         else{
+             return i;
+         }
+     }*/
     return UNDEFINED;
 }
 

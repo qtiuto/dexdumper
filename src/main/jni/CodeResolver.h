@@ -44,9 +44,9 @@ class CodeResolver{
     friend class ref;
 private:
     enum RegisterType{
-        TypeException=0xffffffff-5,
         TypeArray=0xffff+1,
-        TypePrimitive=0xffffffff-3,
+        TypeException = 0xffffffff - 2,
+        TypePrimitive = 0xffffffff - 1,
         UNDEFINED=0xffffffff,
     };
     enum {
@@ -333,7 +333,7 @@ private:
             end=tries[size-1].pos;
             if(size<=4) isMapped= false;
             else{
-                LOGV("Tries mapped start=%u,end=%u,size=%u",start,end,size);
+                //LOGV("Tries mapped start=%u,end=%u,size=%u",start,end,size);
                 isMapped=true; u4 tmpDiv;
                 for(int i=0;i<size-2;++i){
                     tmpDiv=tries[i+1].pos-tries[i].pos;

@@ -9,7 +9,6 @@ DexGlobal dexGlobal;
 static bool isLog;
 JavaVM *javaVM;
 
-#define SIG_METHOD_NOT_FOUND 34
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved){
     JNIEnv* env;
@@ -286,7 +285,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         delete[] heads;
         //LOGV("Start resolve clas def");
 		for (int i = 0; i < idNum; ++i) {
-			const DexFile::ClassDef&clsDefItem = *(classDefs + i);
+            const DexFile::ClassDef &clsDefItem = *(classDefs + i);
             const char* clsChars=dex->getStringFromTypeIndex(clsDefItem.class_idx_);
             //LOGV("Start put cls data,cls name:%s,classIdx=%u",clsChars,clsDefItem.class_idx_);
             //isLog=strcmp(clsChars,"Landroid/media/MediaMetadataRetriever;")==0;
@@ -804,6 +803,9 @@ static void writeHeadSection(const HeadSection head[7], int fd){
         write(fd,ptr,section.size);
     }
 }
+
+//can be optimized by cache
+//no standard library allowed to avoid hook;
 static void writeDataSection(int fd,DataSection* section){
 
 	write(fd,fill, section->prePaddingSize);
@@ -829,6 +831,7 @@ static void writeDataSection(int fd,DataSection* section){
 	write(fd,fill, section->postPaddingSize);
 }
 
+//no standard library allowed to avoid hook;
 static void updateRef(int fd,DataSection* section){
     if(section->fileOffset== 0) return;
     u4 offset;
@@ -902,7 +905,7 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
             if(isFixCode()&&thizClass!= nullptr){
                 //LOGV("Fix Code Required,Start Fix,methodIdx=%d",methodIdx);
                 const char* methodName= dexFile->getStringByStringIndex(methodId.name_idx_);
-                char* sig=getProtoSig(dexFile->proto_ids_[methodId.proto_idx_], dexFile);
+                char *sig = getProtoSig(methodId.proto_idx_, dexFile);
                 if(isLog)LOGV("Method =%s%s",methodName,sig);
                 jmethodID  thisMethodId;
                 if((acessFlag&dalvik::ACC_STATIC)==0)
