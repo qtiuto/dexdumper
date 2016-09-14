@@ -576,7 +576,6 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
 
     int index;
     //LOGV("Start re-count data mapping");
-    //usleep(50000);
     for (DataSection *&section : dataSection) {
         section->prePaddingSize=0;
         section->postPaddingSize=0;
@@ -588,7 +587,6 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                     section->fileOffset=data_off+size;
                 else{
                     states[index].isFirst= true;
-                    //LOGV("nullptr found, keep first,type=%s",getDexDataTypeName(states[index].type));
                 }
                 size+=section->size;
                 break;
@@ -599,7 +597,6 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                     section->fileOffset=data_off+size;
                 else{
                     states[index].isFirst= true;
-                    //LOGV("nullptr found, keep first,type=%s",getDexDataTypeName(states[index].type));
                 }
                 size+=section->size;
                 break;
@@ -614,9 +611,7 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                     int curRefSize=unsignedLeb128Size(curOffset);
                     ClassDataSection* classData=(ClassDataSection*) codeSect->parRef;
                    classData->codeRefs[codeSect->parIdx].nowSize= (u1) curRefSize;
-                    //safe move;
-                    //LOGV("ref=%p,curOffset=%u,curRefSize=%d",codeSect->ref,curOffset,curRefSize);
-                    //LOGV("written size=%d",int(-p)) ;
+
                 }else{
                     states[index].isFirst= true;
                     LOGV("nullptr found, keep first,type=%s",getDexDataTypeName(states[index].type));
@@ -644,13 +639,11 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                 break;
             }
             case typeInterface:{
-                //LOGW("Reached typeInterface,ref=%p",section->ref);
                 changeItemState(states,index,section,size,data_off,section->type, true);
                 if(section->src!=nullptr)
                     section->fileOffset=data_off+size;
                 else{
                     states[index].isFirst= true;
-                    //LOGV("nullptr found, keep first,type=%s",getDexDataTypeName(states[index].type));
                 }
                 if((paddingRequired= (u1) (4 - section->size % 4)) !=  4){
                     section->postPaddingSize=paddingRequired;
@@ -660,13 +653,11 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                 break;
             }
             case typeParameter:{
-                //LOGW("Reached typeParameter");
                 changeItemState(states,index,section,size,data_off,section->type, true);
                 if(section->src!=nullptr)
                     section->fileOffset=data_off+size;
                 else{
                     states[index].isFirst= true;
-                    //LOGV("nullptr found, keep first,type=%s",getDexDataTypeName(states[index].type));
                 }
                 if((paddingRequired= (u1) (4 - section->size % 4)) !=  4){
                     section->postPaddingSize=paddingRequired;
@@ -712,13 +703,11 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                 changeItemState(states,index,section,size,data_off,section->type, false);
                 if(section->src!=nullptr){
                     section->fileOffset=data_off+size;
-                    //LOGV("Class data off=%u",section->fileOffset);
                     size+=section->size;
                     for(int i=0;i<((ClassDataSection*)section)->codeRefSize;++i){
                         ULebRef& ref=((ClassDataSection*)section)->codeRefs[i];
                         size=size-ref.origSize+ref.nowSize;
                     }
-                    //LOGV("classData%d Size=%u",num++,size-section->fileOffset+data_off);
                 }
                 else states[index].isFirst= true;
 
@@ -775,7 +764,6 @@ static void insertEmptySections(std::vector<::DataSection *> &dataSection){
          curType=sect->type;
         if(lastType!=curType) {
             preType=lastType;
-            //LOGV("curType=%s,preType=%s",getDexDataTypeName((u2)curType),getDexDataTypeName((u2)preType));
         }
         if(curType-preType>=2){
             while((++preType)<curType){
@@ -817,7 +805,6 @@ static void writeDataSection(int fd,DataSection* section){
     }
     else{
         ClassDataSection* classData= static_cast<ClassDataSection*>(section);
-        //long off=lseek(fd,0,SEEK_CUR);
         u1 * ptr= (u1 *) section->src;int offset =0;
         for(int i=0;i<classData->codeRefSize;++i){
             ULebRef& ref=classData->codeRefs[i];
@@ -826,7 +813,6 @@ static void writeDataSection(int fd,DataSection* section){
             ref.offset= (u4) (lseek(fd, ref.nowSize, SEEK_CUR) - ref.nowSize);
         }
         write(fd, ptr + offset,classData->size-offset);
-        //LOGV("Class Data%d, wrriten size=%ld",num++,lseek(fd,0,SEEK_CUR)-off);
     }
 	write(fd,fill, section->postPaddingSize);
 }
@@ -843,21 +829,18 @@ static void updateRef(int fd,DataSection* section){
         case typeAnnotationItem:
         case typeDebugInfoItem:{
             offset=section->parRef->fileOffset+section->parOffset;
-            //lseek(fd,offset,SEEK_SET);
             pwrite(fd,&section->fileOffset,4,offset);
             break;
         }
         case typeCodeItem:{
             ClassDataSection* parent=(ClassDataSection*)section->parRef;
             offset=parent->codeRefs[section->parIdx].offset;
-            //lseek(fd,offset,SEEK_SET);
             writeUnsignedLeb128ToFile(fd,section->fileOffset,offset);
             break;
         }
 
         default:{
             offset= (u4) (section->parStart + section->parOffset);
-            //lseek(fd,offset,SEEK_SET);
             pwrite(fd,&section->fileOffset,4,offset);
             break;
         }
@@ -894,9 +877,9 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
      u1* begin= const_cast<u1*>(dexFile->begin_);
     for(int i=0; i < methodSize; ++i){
         methodIdx=readUnsignedLeb128(size,ptr);//method_idx_diff
-        int acessFlag=readUnsignedLeb128(size,ptr);//access_flags
+        int accessFlag = readUnsignedLeb128(size, ptr);//access_flags
         int codeOff=readUnsignedLeb128(ptr,size);
-        //LOGV("accessFlag=%d,codeOff=%d",acessFlag,codeOff);
+        //LOGV("accessFlag=%d,codeOff=%d",accessFlag,codeOff);
         methodIdx+=preIdx;
         preIdx=methodIdx;
         if(codeOff!=0||!isDalvik()){//actually, we can't fix code off in dalvik environment,maybe we should keep exploring.
@@ -908,7 +891,7 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                 char *sig = getProtoSig(methodId.proto_idx_, dexFile);
                 if(isLog)LOGV("Method =%s%s",methodName,sig);
                 jmethodID  thisMethodId;
-                if((acessFlag&dalvik::ACC_STATIC)==0)
+                if ((accessFlag & dalvik::ACC_STATIC) == 0)
                     thisMethodId = env->GetMethodID(thizClass, methodName, sig);
                 else thisMethodId = env->GetStaticMethodID(thizClass, methodName, sig);
 
@@ -928,15 +911,15 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                         memmove(codeItem->insns_,insns,codeItem->insns_size_in_code_units_*2U);
                     }
                 } else{
-                    u4 codeff;
-                    GET_ART_METHOD_MEMBER_VALUE(codeff,dex_code_item_offset_,thisMethodId);
-                    if(codeff!=codeOff){
-                        LOGW("Mismatch codeoff f=%u,s=%u",codeOff,codeff);
+                    u4 rCodeOff;//r=real or runtime
+                    GET_ART_METHOD_MEMBER_VALUE(rCodeOff, dex_code_item_offset_, thisMethodId);
+                    if (rCodeOff != codeOff) {
+                        LOGW("Mismatch codeoff f=%u,s=%u", codeOff, rCodeOff);
                     }
                     //LOGV("Running in art,instructed code off=%u",codeOff);
-                    if(codeOff!=0) {
-                        codeItem= reinterpret_cast<art::DexFile::CodeItem*>(begin + codeOff);
-                    } //else codeItem= nullptr;
+                    if (rCodeOff != 0) {
+                        codeItem = reinterpret_cast<art::DexFile::CodeItem *>(begin + rCodeOff);
+                    }
                 }
             }
             PutCodeItem:
@@ -958,12 +941,12 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                 section->size+=codeItem->insns_size_in_code_units_*2U;//insns are two byte unit
                 //usleep(2000);
                 if(putCodeItem(dataSection,codeItem,section,begin)){
-                    //LOGV("Into put resolver");
-                    //if(strncmp(dexGlobal.curClass,"Lcom/a/a/a",10)==0){
-                        CodeResolver* resolver=new CodeResolver(env,codeItem, clsTypeIdx, &methodId, (acessFlag & dalvik::ACC_STATIC) == 0);
-                        section->fileOffsetRef=&resolver->fileOffset;
-                        resolver->pend();
-                    //}
+                    assert(clsTypeIdx == methodId.class_idx_);
+                    CodeResolver *resolver = new CodeResolver(env, codeItem, &methodId,
+                                                              (accessFlag & dalvik::ACC_STATIC) ==
+                                                              0);
+                    section->fileOffsetRef = &resolver->fileOffset;
+                    resolver->pend();
 
                 };
             }

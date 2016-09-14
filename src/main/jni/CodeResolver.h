@@ -355,8 +355,6 @@ private:
             delete [] tryMap;
         }
     };
-
-    const u4 thizTypeIdx =0;
     TryMap* tryMap= nullptr;
     const art::DexFile::TypeList* protoList;
     const art::DexFile::MethodId* methodId;
@@ -386,8 +384,11 @@ private:
     void changeIdx( u2 *insns, u4 pos, u4 Idx) const;
 public:
     u4 fileOffset;
-    CodeResolver(JNIEnv* env_,const art::DexFile::CodeItem* codeItem,const u4 classIdx_,
-                  const art::DexFile::MethodId *methodId_, bool isInstance_):  thizTypeIdx(classIdx_), methodId(methodId_), protoList(reinterpret_cast<const
+
+    CodeResolver(JNIEnv *env_, const art::DexFile::CodeItem *codeItem,
+                 const art::DexFile::MethodId *methodId_, bool isInstance_) : methodId(methodId_),
+                                                                              protoList(
+                                                                                      reinterpret_cast<const
             art::DexFile::TypeList*>(dexGlobal.dexFile->proto_ids_[methodId_->proto_idx_].parameters_off_!=0?dexGlobal.dexFile->
                     begin_+dexGlobal.dexFile->proto_ids_[methodId_->proto_idx_].parameters_off_: nullptr)
     ), isInstance(isInstance_), codeItem(codeItem){}
@@ -396,6 +397,8 @@ public:
     ~CodeResolver(){
         delete tryMap;
     }
+
+    static void binarySearchType(const char *typeName, u4 &type, const art::DexFile *dexFile);
 };
 
 #endif

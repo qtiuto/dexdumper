@@ -57,7 +57,7 @@ void* CodeResolver::runResolver(void *args) {
     bool isLog= false;
     CodeResolver*resolver = reinterpret_cast<CodeResolver*>(args);
 
-    const char *clsName=dexGlobal.dexFile->getStringFromTypeIndex(resolver->thizTypeIdx);
+    const char *clsName = dexGlobal.dexFile->getStringFromTypeIndex(resolver->methodId->class_idx_);
     if((unsigned long)(resolver->methodId)<1000){
         throw "Polluted method pointer";
     }
@@ -67,8 +67,9 @@ void* CodeResolver::runResolver(void *args) {
 
     char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
     if (isLog)
-        LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s", resolver->thizTypeIdx, clsName,
-    methodName, sig);
+        LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s", resolver->methodId->class_idx_,
+             clsName,
+             methodName, sig);
     delete [] sig;
     resolver->initTries();
     const art::DexFile::CodeItem* code= resolver->codeItem;
@@ -256,10 +257,14 @@ void* CodeResolver::runResolver(void *args) {
                     break;
                 case constStrJ:++pos;
                 case constStr:pos+=2;
+                    if (globalRef.strTypeIdx == UNDEFINED)
+                        throw std::runtime_error("String Type not initiated");
                     resolver->checkRegRange(preData);
                     curNode->registerTypes[preData]=globalRef.strTypeIdx;
                     break;
                 case constClass:
+                    if (globalRef.clsTypeIdx == UNDEFINED)
+                        throw std::runtime_error("String Type not initiated");
                     resolver->checkRegRange(preData);
                     curNode->registerTypes[preData]=globalRef.clsTypeIdx;pos+=2;
                     break;
@@ -382,7 +387,7 @@ void* CodeResolver::runResolver(void *args) {
                     ins= (u1 *) &insns[pos + 1];
                     resolver->checkRegRange(*ins);
                     u4 arrayType=curNode->registerTypes[*ins];
-                    u4 type=0;
+                    u4 type = UNDEFINED;
                     const char* typeName=dexGlobal.dexFile->getStringFromTypeIndex(arrayType);
                     if(typeName[0]=='['){
                         if(strcmp(typeName+1,"Ljava/lang/String;")==0){
@@ -390,34 +395,24 @@ void* CodeResolver::runResolver(void *args) {
                         } else if(strcmp(typeName+1,"Ljava/lang/Class;")==0){
                             type=globalRef.clsTypeIdx;
                         } else{
-                            //can be optimized by cached and dexUtfCmp
-                            const art::DexFile* dexFile=dexGlobal.dexFile;
-                            u4 low = 0, high = dexFile->header_->type_ids_size_ - 1, mid;
-                            int value;
-                            while (low <= high) {
-                                mid = (low + high) >> 1;
-                                auto name = dexFile->getStringFromTypeIndex(mid);
-                                value = dexUtf8Cmp(name, typeName + 1);
-                                if (value == 0) {
-                                    type = mid;
-                                    break;
-                                } else if (value > 0) {
-                                    high = mid - 1;
-                                } else low = mid + 1;
+                            //can be optimized by cached and dexUtfCmpconst art::DexFile *dexFile;
+                            auto dexFile = dexGlobal.dexFile;
+                            binarySearchType(typeName + 1, type, dexFile);
+                            if (type == UNDEFINED) {
+                                // for unordered dexFile;
+                                for (u4 i = 0, N = dexFile->header_->type_ids_size_; i < N; ++i) {
+                                    if (strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
+                                               typeName + 1) == 0) {
+                                        type = i;
+                                        break;
+                                    }
+                                }
                             }
-                            // for unordered dexFile;
-                            /* for(u4 i=0,N=dexFile->header_->type_ids_size_;i<N;++i){
-                                 if(strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
-                                           typeName+1)==0){
-                                     type=i;
-                                     break;
-                                 }
-                             }*/
                         }
                     } else{
                         LOGE("Illegal array type %s",typeName);
                     }
-                    if(type== 0){
+                    if (type == UNDEFINED) {
                         LOGE("can't find class type for array type=%s",typeName);
                     }
                     //if(isLog) LOGV("Aget reg%u updated by reg%u with %u",preData,*ins,type);
@@ -722,6 +717,22 @@ void* CodeResolver::runResolver(void *args) {
     return nullptr;
 }
 
+void CodeResolver::binarySearchType(const char *typeName, u4 &type, const art::DexFile *dexFile) {
+    u4 low = 0, high = dexFile->header_->type_ids_size_ - 1, mid;
+    int value;
+    while (low <= high) {
+        mid = (low + high) >> 1;
+        auto name = dexFile->getStringFromTypeIndex(mid);
+        value = dexUtf8Cmp(name, typeName);
+        if (value == 0) {
+            type = mid;
+            break;
+        } else if (value > 0) {
+            high = mid - 1;
+        } else low = mid + 1;
+    }
+}
+
 void CodeResolver::alterField(const CodeResolver::JumpNode *curNode,
                                u2 *insns, u1 rOb, u4 pos) {
     //if(isLog)LOGV("Start get field offset rOb=%u,typeIdx=%u",rOb,curNode->registerTypes[rOb]);
@@ -766,28 +777,32 @@ bool CodeResolver::pend() {
         globalRef.curDexFile=dexGlobal.dexFile;
         globalRef.strTypeIdx=UNDEFINED;
         globalRef.clsTypeIdx=UNDEFINED;
-        for(u4 i=0,N=dexGlobal.dexFile->header_->type_ids_size_;i<N&&(globalRef.
-                strTypeIdx == UNDEFINED || globalRef.clsTypeIdx == UNDEFINED);) {
-            if (i + 256 < N) {
-                auto nextClassName = dexGlobal.dexFile->getStringFromTypeIndex(i + 256);
-                //ok, as ascii is compatible.
-                if (strcmp(nextClassName, "Ljava/lang/String;") < 0) {
-                    i += 256;
-                    continue;
+        //String type is more possible to appear than class type
+        binarySearchType("Ljava/lang/String;", globalRef.strTypeIdx, globalRef.curDexFile);
+        if (globalRef.strTypeIdx == UNDEFINED) {
+            for (u4 i = 0, N = dexGlobal.dexFile->header_->type_ids_size_; i < N && (globalRef.
+                    strTypeIdx == UNDEFINED || globalRef.clsTypeIdx == UNDEFINED); ++i) {
+                auto className = dexGlobal.dexFile->getStringFromTypeIndex(i);
+                if (strcmp(className,
+                           "Ljava/lang/String;") == 0) {
+                    globalRef.strTypeIdx = i;
+                    LOGV("meet str type idx=%d", i);
+                }
+                if (strcmp(className,
+                           "Ljava/lang/Class;") == 0) {
+                    globalRef.clsTypeIdx = i;
+                    LOGV("meet class type idx=%d", i);
                 }
             }
-            auto className=dexGlobal.dexFile->getStringFromTypeIndex(i);
-            if(strcmp(className,
-                      "Ljava/lang/String;")==0){
-                globalRef.strTypeIdx=i;
-                LOGV("meet str type idx=%d",i);
+        } else {
+            for (u4 i = globalRef.strTypeIdx; i != -1; --i) {
+                if (strcmp(dexGlobal.dexFile->getStringFromTypeIndex(i),
+                           "Ljava/lang/Class;") == 0) {
+                    globalRef.clsTypeIdx = i;
+                    LOGV("meet class type idx=%d", i);
+                    break;
+                }
             }
-            if(strcmp(className,
-                      "Ljava/lang/Class;")==0){
-                globalRef.clsTypeIdx=i;
-                LOGV("meet class type idx=%d",i);
-            }
-            ++i;
         }
 
     }
@@ -867,7 +882,7 @@ void CodeResolver::initRegisters(u4* registers) {
         registers[i]=UNDEFINED;
     }
     if(isInstance) {
-        registers[codeItem->registers_size_-paraSize-1]= thizTypeIdx;
+        registers[codeItem->registers_size_ - paraSize - 1] = methodId->class_idx_;
         //LOGV("Instance Reg%u init with type=%u",)
     }
     for(i=0;i<paraSize;++i){
@@ -884,7 +899,7 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     if (clsName[0] != 'L' && clsName[0] !=
                              '[') {//Array type is namely sub-type of object,so inherit all the virtual methods of object
         LOGE("Invalid class Foundm name=%s c=%s ", clsName,
-             dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx));
+             dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_));
         return UNDEFINED;
     }
     char *cClassName = toJavaClassName(clsName);
@@ -895,7 +910,6 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     delete[] cClassName;
     if(javaMethod==NULL)
         return UNDEFINED;
-    jmethodID methodID=env->FromReflectedMethod(javaMethod);
     //LOGV("Vmethod, methodid found=%p",methodID);
     jbyteArray result = (jbyteArray) env->CallStaticObjectMethod(dexGlobal.getToolsClass(),
                                                                  dexGlobal.getConvertMember(),
@@ -987,19 +1001,17 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
             }
         }
     }
+
     if (exchanged) cls = (char *) clsName;
-    cls[strlen(cls)] = '|';
-    cls[strlen(cls)] = '|';
-    LOGE("Can't find method id for %s", cls);
+    *(mName - 1) = '|';
+    *(retType - 1) = '|';
+    *(proto - 1) = '|';
+    LOGE("Can't find method id for %s in ordered mode,start full glance", cls);
+    *(mName - 1) = '\0';
+    *(retType - 1) = '\0';
+    *(proto - 1) = '\0';
 
-
-
-
-
-
-
-
-    /*  for(u4 i=0;i<dexGlobal.dexFile->header_->method_ids_size_;++i){
+    for (u4 i = 0; i < dexGlobal.dexFile->header_->method_ids_size_; ++i) {
           const art::DexFile::MethodId& mid=dexGlobal.dexFile->method_ids_[i];
           const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(mid.class_idx_);
           if(strcmp(cls,thizClass)!=0&&strcmp(clsName,thizClass)!=0) continue;
@@ -1010,14 +1022,18 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
           if(protoString.compare(proto)==0){
               return i;
           }
-      }*/
+    }
+    *(mName - 1) = '|';
+    *(retType - 1) = '|';
+    *(proto - 1) = '|';
+    LOGE("Can't find method id for %s", cls);
     return UNDEFINED;
 }
 u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
     const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
     if (clsName[0] != 'L') {//only object type has field.
         LOGE("Qfield Invalid class Found f=%s,classIdx=%u,vIdx=%x",
-             dexGlobal.dexFile->getStringFromTypeIndex(thizTypeIdx), clsIdx, fieldOffset);
+             dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_), clsIdx, fieldOffset);
     }
     const char *cClassName = toJavaClassName(clsName);
 
@@ -1114,34 +1130,29 @@ u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
         }
     }
     if (exchanged) cls = (char *) clsName;
-    cls[strlen(cls)] = '|';
-    cls[strlen(cls)] = '|';
+    *(typeName - 1) = '|';
+    *(fName - 1) = '|';
+    LOGE("Can't find field id for %s by binary search start full glance", cls);
+    *(typeName - 1) = '\0';
+    *(fName - 1) = '\0';
+
+    for (u4 i = 0; i < dexGlobal.dexFile->header_->field_ids_size_; ++i) {
+        const art::DexFile::FieldId &fid = dexGlobal.dexFile->field_ids_[i];
+        const char *thizClass = dexGlobal.dexFile->getStringFromTypeIndex(fid.class_idx_);
+        if (strcmp(cls, thizClass) != 0 && strcmp(thizClass, clsName) != 0)
+            continue;
+        const char *name = dexGlobal.dexFile->getStringByStringIndex(fid.name_idx_);
+        if (strcmp(name, fName) != 0) continue;
+        const char *type = dexGlobal.dexFile->getStringFromTypeIndex(fid.type_idx_);
+        if (strcmp(type, typeName) != 0)
+            LOGW("Type Mismatch field%s.%s:%s,should be type:%s", cls, name, typeName, typeName);
+        else {
+            return i;
+        }
+    }
+    *(typeName - 1) = '|';
+    *(fName - 1) = '|';
     LOGE("Can't find field id for %s", cls);
-
-
-
-
-
-
-
-
-
-
-
-    /* for(u4 i=0;i<dexGlobal.dexFile->header_->field_ids_size_;++i){
-         const art::DexFile::FieldId&fid =dexGlobal.dexFile->field_ids_[i];
-         const char* thizClass=dexGlobal.dexFile->getStringFromTypeIndex(fid.class_idx_);
-         if(strcmp(cls,thizClass)!=0&&strcmp(thizClass,clsName)!=0)
-             continue;
-         const char* name=dexGlobal.dexFile->getStringByStringIndex(fid.name_idx_);
-         if(strcmp(name,fName)!=0) continue;
-         const char* type=dexGlobal.dexFile->getStringFromTypeIndex(fid.type_idx_);
-         if(strcmp(type,typeName)!=0)
-             LOGW("Type Mismatch field%s.%s:%s,should be type:%s",cls,name,typeName,typeName);
-         else{
-             return i;
-         }
-     }*/
     return UNDEFINED;
 }
 
