@@ -1,9 +1,6 @@
 package com.oslorde.extra;
 
-import android.util.Log;
 import android.util.SparseArray;
-
-import com.oslorde.sharedlibrary.Utils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -56,7 +53,7 @@ public final class ClassTools {
         if((fTable=cachedFTables.get(className))==null){
             Class cls=findClass(className);
             if(cls==null){
-                Utils.logOslorde("Invalid class name f="+className);
+                Utils.logE("Invalid class name f=" + className);
                 return null;
             }
             fTable=getAllInstanceFields(cls);
@@ -114,19 +111,16 @@ public final class ClassTools {
         }
     }
     public static synchronized Method getMethodFromIndex(String className, int methodIndex) {
-        //Utils.logOslorde("Java getMethod Invoked,clsName="+className+",vIdx="+methodIndex);
         SparseArray<Method> vTable;
         if((vTable=cachedVTables.get(className))==null){
             Class cls=findClass(className);
             if(cls==null){
-                Utils.logOslorde("Invalid class name m="+className);
+                Utils.logE("Invalid class name m=" + className);
                 return null;
             }
             vTable=getAllVMethods(cls);
             cachedVTables.put(className,vTable);
         }
-        //Utils.log("Method gotten of index:"+method);
-        //retBuilder.append('\0');
         return vTable.get(methodIndex);
     }
     public static byte[] getDexSHA1Hash(String path){
@@ -134,7 +128,7 @@ public final class ClassTools {
             File file=new File(path);
             if(!file.canRead()){
                 if(!file.setReadable(true)){
-                    Log.w("dexdumper","can not set dex file to be readable");
+                    Utils.logE("can not set dex file to be readable");
                 }
             }
             FileInputStream in = new FileInputStream(path);
@@ -146,7 +140,7 @@ public final class ClassTools {
             System.arraycopy(hash,0,arr,12,hash.length);
             return arr;
         }catch (Exception e){
-            Utils.logOslorde("DexDumper,Error getSha1value",e);
+            Utils.log("Error getSha1value", e);
         }
         return null;
     }

@@ -48,5 +48,4 @@ model{
 dependencies {
     compile fileTree(include: ['*.jar'], dir: 'libs')
     testCompile 'junit:junit:4.12'
-    compile project(':sharedlibrary')
 }

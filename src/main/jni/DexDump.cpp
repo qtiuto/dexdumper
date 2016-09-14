@@ -6,7 +6,6 @@
 
 const char fill[] ="\0\0\0\0\0\0\0\0";
 DexGlobal dexGlobal;
-static bool isLog;
 JavaVM *javaVM;
 
 
@@ -120,21 +119,22 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV23(JNIEnv *env,
 static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,const char* outDir){
     using namespace art;
 	int dirLen = (int) strlen(outDir);
-	char dexName[dirLen +23];
+    char dexFileName[dirLen + 23];
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreturn-stack-address"
-    dexGlobal.dexFileName=dexName;//only within this method
+    dexGlobal.dexFileName = dexFileName;//only within this method
 #pragma clang diagnostic pop
+    dexGlobal.setToolsClass(env);
 
-    memset(dexName, '\0', (size_t) (dirLen + 23));
-	memcpy(dexName, outDir, (size_t) dirLen);
+    memset(dexFileName, '\0', (size_t) (dirLen + 23));
+    memcpy(dexFileName, outDir, (size_t) dirLen);
     if(outDir[dirLen-1]!='/'){
-       dexName[dirLen++]='/';
+        dexFileName[dirLen++] = '/';
     }
     int count=0;
     struct dirent *dp;
-    DIR *dirp = opendir(dexName); //打开目录指针
+    DIR *dirp = opendir(dexFileName); //打开目录指针
     while ((dp = readdir(dirp)) != NULL) { //通过目录指针读目录
         char* fileName=dp->d_name;
         int num= (int) (strlen(fileName) - 4);
@@ -155,11 +155,11 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             continue;
         }
 		++count;
-		setDexName(count, dexName+dirLen);
-        LOGV("Dex out %s",dexName);
-        int fd=open(dexName,O_RDWR|O_CREAT,00700);
+        setDexName(count, dexFileName + dirLen);
+        LOGV("Dex out %s", dexFileName);
+        int fd = open(dexFileName, O_RDWR | O_CREAT, 00700);
         if(fd==-1){
-            LOGE("Open File: %s Failed",dexName);
+            LOGE("Open File: %s Failed", dexFileName);
             continue;
         } else{
             struct stat buf;
@@ -169,14 +169,16 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             }
         }
         dexGlobal.dexFile=dex;
-        LOGV("Global dexFile=%p",dex);
+        LOGV("dexFile=%p will be written to %s", dex, dexFileName);
         if(dexGlobal.pool!= nullptr)
             dexGlobal.pool->reOpen();
 		std::vector<::DataSection*> dataSection;
-        HeadSection* heads=new HeadSection[7];
+        HeadSection heads[7];
         LinkData* linkData= nullptr;
+
         u1* begin = const_cast<u1*>(dex->begin_);
-        LOGV("start address,%p",begin);
+        LOGV("start address,%p", (void *) begin);
+
 		DexFile::Header header =*dex->header_ ;
 		if (memcmp(header.magic_, "dex\n",4) != 0 ||!judgeVersion(&header.magic_[4])) {
 			LOGV("Invalid magic version %s",header.magic_);
@@ -189,12 +191,15 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             linkData->size=header.link_size_;
             linkData->data= const_cast<u1*>(reinterpret_cast<const u1*>(header.link_off_+begin)) ;
         }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreturn-stack-address"
 		heads[0].ptr= (u1 *)& header;
+#pragma clang diagnostic pop
         heads[0].num = 1;
         heads[0].size= sizeof(DexFile::Header);
         header.header_size_=sizeof(DexFile::Header);
 
-        LOGV("Go to MapList");
+
         char buf[sizeof(DexFile::MapItem)*18/*the max num of size*/ + 4U];
         DexFile::MapList* mapList=new(buf) DexFile::MapList;
         DataSection* mapSection=new DataSection;
@@ -203,7 +208,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         mapSection->size=0;// to be fix in the nature
         dataSection.push_back(mapSection);//mapof will be updated directly on header;
 
-        LOGV("Go to String ids");
+
         header.string_ids_off_= sizeof(DexFile::Header);
         const DexFile::StringId* stringIds = dex->string_ids_;
         u4 idNum = header.string_ids_size_;
@@ -224,7 +229,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
 			stringData->parOffset =  (i * (u4)sizeof(DexFile::StringId));
 			dataSection.push_back(stringData);
 		}
-        LOGV("Go to Type ids");
         header.type_ids_off_=header.string_ids_off_+heads[1].size;
 		const DexFile::TypeId* typeIds = dex->type_ids_;
 		idNum = header.type_ids_size_;
@@ -232,7 +236,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         heads[2].num = idNum;
         heads[2].size=idNum*(u4) sizeof(DexFile::TypeId);
 
-        LOGV("Go to Proto ids,size=%d",idNum);
         header.proto_ids_off_=header.type_ids_off_+heads[2].size;
 		const DexFile::ProtoId* protoIds = dex->proto_ids_;
 		idNum = header.proto_ids_size_;
@@ -246,7 +249,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
                     header.proto_ids_off_, offsetof(DexFile::ProtoId,parameters_off_),typeParameter, begin);
 		}
 
-        LOGV("Go to Field ids");
         header.field_ids_off_=header.proto_ids_off_+heads[3].size;
 		const DexFile::FieldId* fieldIds = dex->field_ids_;
 		idNum = header.field_ids_size_;
@@ -254,7 +256,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         heads[4].num = idNum;
         heads[4].size=idNum* (u4)sizeof(DexFile::FieldId);
 
-        LOGV("Go to Method ids");
         header.method_ids_off_=header.field_ids_off_+heads[4].size;
 		const DexFile::MethodId* methodIds = dex->method_ids_;
 		idNum = header.method_ids_size_;
@@ -262,7 +263,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         heads[5].num =  idNum;
         heads[5].size=idNum*(u4) sizeof(DexFile::MethodId);
 
-        LOGV("Go to classDef");
         header.class_defs_off_=header.method_ids_off_+heads[5].size;
 		const DexFile::ClassDef* classDefs = dex->class_defs_;
         idNum = header.class_defs_size_;
@@ -270,7 +270,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         heads[6].size= idNum * (u4) sizeof(DexFile::ClassDef);
         heads[6].ptr= (u1 *) classDefs;
 
-        dexGlobal.setToolsClass(env);
 
         jclass toolsClass =dexGlobal.getToolsClass();
         jmethodID findMethod=env->GetStaticMethodID(toolsClass, "findClass", "(Ljava/lang/String;)Ljava/lang/Class;");
@@ -282,37 +281,34 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         header.data_off_=header.class_defs_off_+heads[6].size;
         fixMapListHeaderPart(&header, heads, mapList);//mapList second
         writeHeadSection(heads,fd);
-        delete[] heads;
-        //LOGV("Start resolve clas def");
+
+        LOGV("Start resolve clas def");
 		for (int i = 0; i < idNum; ++i) {
             const DexFile::ClassDef &clsDefItem = *(classDefs + i);
             const char* clsChars=dex->getStringFromTypeIndex(clsDefItem.class_idx_);
             //LOGV("Start put cls data,cls name:%s,classIdx=%u",clsChars,clsDefItem.class_idx_);
-            //isLog=strcmp(clsChars,"Landroid/media/MediaMetadataRetriever;")==0;
             dexGlobal.curClass=clsChars;
             jclass thizClass= nullptr;
             if(isFixCode()){
-                char *fixedClssName = toJavaClassName(clsChars);
-                jstring clsName=env->NewStringUTF(fixedClssName);//skip primitive class
+                char *fixedClassName = toJavaClassName(clsChars);
+                jstring clsName = env->NewStringUTF(fixedClassName);//skip primitive class
                 thizClass = (jclass) env->CallStaticObjectMethod(toolsClass, findMethod, clsName);
                 if(thizClass==NULL){
                     thizClass= nullptr;
                     LOGW("Class %s can't be init in jni environment,\n"
                                  "may be they are rejected for referring "
-                                 "to inaccessible class,e.g. xposedbridge.",fixedClssName);
+                                 "to inaccessible class,e.g. xposedbridge.", fixedClassName);
                     if(isFixCode())LOGW("So,dynamic code fix is disabled for this class");
                 }
                 env->DeleteLocalRef(clsName);
-                delete[] fixedClssName;
+                delete[] fixedClassName;
             }
 			if (clsDefItem.interfaces_off_ != 0){
-                //LOGV("Interfaces off=%u",clsDefItem.interfaces_off_);
                 putTypeList(dataSection, clsDefItem.interfaces_off_,i* (u4)sizeof(DexFile::ClassDef)
                            +header.class_defs_off_, offsetof(DexFile::ClassDef
                 ,interfaces_off_), typeInterface, begin);
             }
 			if (clsDefItem.annotations_off_ != 0) {
-                //LOGV("AnnoDir Offset=%u",clsDefItem.annotations_off_);
 				 DexFile::AnnotationsDirectoryItem* directory = reinterpret_cast<DexFile::AnnotationsDirectoryItem*>(begin + clsDefItem.annotations_off_) ;
 				//LOGV("AnnotationDir not null,ptr=%p",directory);
 				DataSection* section = new DataSection;
@@ -324,20 +320,15 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
                                   +header.class_defs_off_;
                 section->src =  directory ;
 
-                //LOGV("Copied AnnoDir, size=%d,offset=%ld",section->size,section->offset);
 				dataSection.push_back(section);
-                //LOGV("directoryBuf ptr=%p,directory=%p",(void*)directoryBuf,directory);
                 u1*ptrCur = reinterpret_cast<u1*>(directory+ 1U);//as directory is of that type so just offset 1
                 u1* ptrStart= (u1 *) directory;
-                //LOGV("ptrCur=%p,sizeof=%d",(void*)ptrCur,sizeof(DexFile::AnnotationsDirectoryItem));
                 u4 classAnnoOffset=directory->class_annotations_off_;
-                //LOGV("Get classAnnoOffset over,offset=%u",classAnnoOffset);
                 if(classAnnoOffset!=0){
                     DexFile::AnnotationSetItem* setItem= reinterpret_cast<DexFile::AnnotationSetItem*>(begin+classAnnoOffset);
                     putAnnoSetItem(dataSection, section, 0, setItem, begin);
                 }
 				if (directory->fields_size_>0) {
-                    //LOGV("Field annotations not null,size=%u,ptr=%p", directory->fields_size_, ptrCur);
 
 					for (int j = 0;j < directory->fields_size_;++j) {
 						DexFile::FieldAnnotationsItem* item = reinterpret_cast<DexFile::FieldAnnotationsItem*>(ptrCur);
@@ -349,19 +340,16 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
 
 				}
 				if (directory->methods_size_>0) {
-                    //LOGV("Method annotations not null,size=%u,offset=%p", directory->methods_size_, ptrCur-begin);
 					for (int j = 0;j < directory->methods_size_;++j) {
 						DexFile::MethodAnnotationsItem* item = reinterpret_cast<DexFile::MethodAnnotationsItem*>(ptrCur);
-                        //LOGV("Method annotationItem,offset=%u",item->annotations_off_);
                         DexFile::AnnotationSetItem* setItem= reinterpret_cast<DexFile::AnnotationSetItem*>(begin+item->annotations_off_) ;
-                       // LOGV("Method annotationItem,offset=%u,counts=%u",item->annotations_off_,setItem->size_);
+
                         putAnnoSetItem(dataSection, section, (u4) (ptrCur - ptrStart)+offsetof(
                                 DexFile::MethodAnnotationsItem,annotations_off_), setItem, begin);
 						ptrCur += sizeof(DexFile::MethodAnnotationsItem);
 					}
 				}
                 if(directory->parameters_size_>0){
-                    //LOGV("Parameter annotations not null,size=%u,ptr=%p", directory->parameters_size_, ptrCur);
                     for(int j=0;j<directory->parameters_size_;++j){
                         DexFile::ParameterAnnotationsItem* item= reinterpret_cast<DexFile::ParameterAnnotationsItem*>(ptrCur);
 
@@ -385,8 +373,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
 			}
 
             if(clsDefItem.class_data_off_ != 0){
-               // LOGV("Class data off=%u",clsDefItem.class_data_off_);
-                //usleep(1000);
                 int size;
                 const u1* ptr= begin + clsDefItem.class_data_off_;
                 const u1* beginPtr=ptr;
@@ -419,12 +405,10 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
 
                 ptr=beginPtr+methodBeginSize;
 
-                //LOGV("Start Fix Direct Method,ptr=%p",ptr);
 
                 fixMethodCodeIfNeeded(env, dex, directMethodSize, thizClass,
                                       dataSection, ptr,section , clsDefItem.class_idx_);
 
-                //LOGV("Start Fix Virtul Method,ptr=%p",ptr);
                 fixMethodCodeIfNeeded(env, dex, virtualMethodSize, thizClass,
                                       dataSection, ptr,section , clsDefItem.class_idx_);
             }
@@ -452,10 +436,9 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             fileSize+=linkData->size;
         }
         header.file_size_=fileSize;
-        //lseek(fd,0,SEEK_SET);
         pwrite(fd,&header, sizeof(DexFile::Header),0);
         LOGV("Start writing,data_off=%u,data_size=%u,file size=%u",header.data_off_,header.data_size_,fileSize);
-        truncate(dexName,fileSize);
+        truncate(dexFileName, fileSize);
 
 		lseek(fd,header.data_off_,SEEK_SET);
         LOGV("Start write data Section pos=%ld",lseek(fd,0,SEEK_CUR));
@@ -472,7 +455,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             delete linkData;
         }
         LOGV("Update ref");
-        //usleep(2000);
         for(DataSection* section:dataSection){
             updateRef(fd,section);
         }
@@ -489,13 +471,12 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             dexGlobal.pool->waitForFinish();
         }
         LOGW("Wait over!Start writing new header");
-        jstring dexPath=env->NewStringUTF(dexName);
+        jstring dexPath = env->NewStringUTF(dexFileName);
         jmethodID hashMid=env->GetStaticMethodID(toolsClass, "getDexSHA1Hash", "(Ljava/lang/String;)[B");
         jbyteArray fileContent= (jbyteArray) env->CallStaticObjectMethod(toolsClass, hashMid, dexPath);
 
         env->DeleteLocalRef(dexPath);
         jbyte * readBuf= env->GetByteArrayElements(fileContent, nullptr);
-        LOGV("SHAl Count");
         DexFile::Header* fileHeader= reinterpret_cast<DexFile::Header*>(readBuf);
         fileHeader->checksum_= adler32((char *) fileHeader->signature_, fileSize - 12);
 
@@ -508,6 +489,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
        // usleep(1000);
         LOGV("One dex over");
 	}
+    dexGlobal.releaseToolsClass(env);
 }
 
 static bool judgeVersion(const unsigned char* str){
@@ -548,7 +530,6 @@ static void changeItemState(ItemState itemStates[],int index,DataSection *sectio
         itemStates[index].offset=size+data_off;
         itemStates[index].type=type;
         //LOGV("Into type %s,size=%d",getDexDataTypeName(type),size);
-        //usleep(500);
     }
     ++(itemStates[index].size);
 }
@@ -889,7 +870,6 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                 //LOGV("Fix Code Required,Start Fix,methodIdx=%d",methodIdx);
                 const char* methodName= dexFile->getStringByStringIndex(methodId.name_idx_);
                 char *sig = getProtoSig(methodId.proto_idx_, dexFile);
-                if(isLog)LOGV("Method =%s%s",methodName,sig);
                 jmethodID  thisMethodId;
                 if ((accessFlag & dalvik::ACC_STATIC) == 0)
                     thisMethodId = env->GetMethodID(thizClass, methodName, sig);
@@ -924,7 +904,6 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
             }
             PutCodeItem:
             if(codeItem!= nullptr){
-                if(isLog)LOGV("Into Code Item");
                 CodeItemSect* section=new CodeItemSect;
                 section->parIdx=classData->codeRefSize;
                 ULebRef& uLeb=classData->codeRefs[(classData->codeRefSize)++];
@@ -934,12 +913,8 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                 section->src=  codeItem;
                 section->size= sizeof(art::DexFile::CodeItem) - sizeof(u2);
                 section->parRef=classData;
-                if(isLog){
-                    LOGV("RagSize=%u,tries=%u,debugOff=%u",codeItem->registers_size_,codeItem->tries_size_,codeItem->debug_info_off_);
-                }
-                if(isLog)LOGV("Now Size without insns=%d,insns size=%u",section->size,codeItem->insns_size_in_code_units_);
                 section->size+=codeItem->insns_size_in_code_units_*2U;//insns are two byte unit
-                //usleep(2000);
+
                 if(putCodeItem(dataSection,codeItem,section,begin)){
                     assert(clsTypeIdx == methodId.class_idx_);
                     CodeResolver *resolver = new CodeResolver(env, codeItem, &methodId,
@@ -957,8 +932,7 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
 
 static bool putCodeItem(std::vector<::DataSection *>& dataSection,
                art::DexFile::CodeItem* codeItem,CodeItemSect* section, u1* begin) {
-    if(isLog)LOGV("Start put code item,offset=%lu",(unsigned long)codeItem-(unsigned long)begin);
-    //usleep(2000);
+
     int size;
     if(codeItem->tries_size_>0){
         //LOGV("Has try part,try size=%u",codeItem->tries_size_);
@@ -986,17 +960,14 @@ static bool putCodeItem(std::vector<::DataSection *>& dataSection,
             if(hasCatchAll) {
                 readUnsignedLeb128(size, ptr);
                 section->size+=size;
-                //LOGV("Has Catch All,add its size=%d",size);
             }
         }
        //LOGV("Try part size counted,now size=%d",section->size);
     }
-    //LOGV("Code Item Copied,ptr=%p,offset=%ld",codeBuf,section->offset);
 
     dataSection.push_back(section);
     u4 debugOff=codeItem->debug_info_off_;
     if(debugOff!=0){
-        //LOGV("Into put debug item");
         DataSection* debugSect=new DataSection;
         const u1* ptr= begin+debugOff;
         debugSect->src=ptr;
@@ -1019,7 +990,6 @@ static bool putCodeItem(std::vector<::DataSection *>& dataSection,
 }
 
 static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem) {
-    //LOGV("Into fix opcode");
     int i;
     for(i=0;i<codeItem->insns_size_in_code_units_;) {
         u1 opCode = u1((codeItem->insns_[i]) & (u2) 0xff);
@@ -1210,11 +1180,11 @@ static int getEncodedArraySize(const u1* encodedArray) {
 }
 static int getEncodedAnnotationItemSize(const u1* encodedItem) {
 	int size;
-	readUnsignedLeb128(encodedItem, size/*by ref*/);//read type_idx 	uleb128 type of the annotation. This must be a class (not array or primitive) type.
+    readUnsignedLeb128(encodedItem, size/*by ref*/);//read type_idx
 	const u1* ptr = encodedItem + size;
-	int annosize = readUnsignedLeb128(size,ptr);//read size 	uleb128 	number of name-value mappings in this annotation
+    int annosize = readUnsignedLeb128(size, ptr);//read size
 	for (int i = 0;i < annosize;++i) {
-		readUnsignedLeb128(size,ptr);//name_idx element name, represented as an index into the string_ids section. The string must conform to the syntax for MemberName, defined above.
+        readUnsignedLeb128(size, ptr);//name_idx element name
 		size = getEncodedValueSize(reinterpret_cast<const Encoded_Value *>(ptr));
 		ptr += size;
 	}

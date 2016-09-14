@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.text.TextUtils;
 
 import com.oslorde.dexdumper.BuildConfig;
-import com.oslorde.sharedlibrary.Utils;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -21,7 +20,6 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.channels.FileChannel;
-import java.util.Enumeration;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -133,7 +131,7 @@ public class DexDumper {
         try {
             System.load(libDst.getAbsolutePath());
         }catch (Throwable e){
-            Utils.logOslorde(e);
+            Utils.log(e);
             throw new DexDumpException("Failed to load libirary",e);
         }
         if(storePath==null) storePath=sStorePath;
@@ -205,8 +203,8 @@ public class DexDumper {
         ClassTools.init(loader);
         do{
             if(!(loader instanceof BaseDexClassLoader)){
-                if(!loader.getClass().getSimpleName().equals("BootClassLoader")){
-                    Utils.log("DexDump:the final class loader is not of");
+                if (loader != null && !loader.getClass().getSimpleName().equals("BootClassLoader")) {
+                    Utils.logW("the final class loader is not of BootClassLoader, may there should be a fix to get proper classLoader");
                 }
                 // reach boot classloader or null or other.
                 break;
@@ -233,17 +231,18 @@ public class DexDumper {
 
                     String dexName=dexFile.getName();
                     Utils.log("loader path"+i+" :"+dexName);
-                    //necessary?
-                    Enumeration<String> classes=dexFile.entries();
-                    File file=new File(sStorePath,"Classes.txt");
                     FileOutputStream out;
-                    /*out = new FileOutputStream(file,true);
+                    File file;
+                    //necessary?
+                    /*Enumeration<String> classes=dexFile.entries();
+                    file=new File(sStorePath,"Classes.txt");
+                    out = new FileOutputStream(file,true);
                     out.write(("-----"+dexName+"-----\n").getBytes());
                     while (classes.hasMoreElements()){
                         String clsName=classes.nextElement();
                         try {
                             //loader.loadClass(clsName);
-                            //out.write(clsName.getBytes());
+                            out.write(clsName.getBytes());
                             //out.write('\n');
                         }catch (Throwable ignored){
                             Utils.log(clsName+" not found");

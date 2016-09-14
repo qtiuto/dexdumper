@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 
 import com.oslorde.dexdumper.R;
-import com.oslorde.sharedlibrary.Utils;
 
 import java.io.File;
 
@@ -18,7 +17,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        String packageName="com.jjwxc.reader";
+        String packageName = "com.jjwxc.reader";//for test only
         try {
             ApplicationInfo info=getPackageManager().getApplicationInfo(packageName,0);
             DexLoader.install(info.sourceDir,getPackageName(),packageName);

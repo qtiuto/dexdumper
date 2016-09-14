@@ -395,7 +395,6 @@ void* CodeResolver::runResolver(void *args) {
                         } else if(strcmp(typeName+1,"Ljava/lang/Class;")==0){
                             type=globalRef.clsTypeIdx;
                         } else{
-                            //can be optimized by cached and dexUtfCmpconst art::DexFile *dexFile;
                             auto dexFile = dexGlobal.dexFile;
                             binarySearchType(typeName + 1, type, dexFile);
                             if (type == UNDEFINED) {
@@ -413,7 +412,8 @@ void* CodeResolver::runResolver(void *args) {
                         LOGE("Illegal array type %s",typeName);
                     }
                     if (type == UNDEFINED) {
-                        LOGE("can't find class type for array type=%s",typeName);
+                        //It may be the case that it's a temporary array multi-dimension array type.
+                        LOGW("can't find class type for array type=%s", typeName);
                     }
                     //if(isLog) LOGV("Aget reg%u updated by reg%u with %u",preData,*ins,type);
                     resolver->checkRegRange(preData);
