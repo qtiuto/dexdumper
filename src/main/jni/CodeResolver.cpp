@@ -43,8 +43,8 @@ jint  getMethodVIdx(JNIEnv *env,jclass thisClass,jobject method){
 void CodeResolver::threadInit() {
     javaVM->AttachCurrentThread(&env, nullptr);
     if(env->RegisterNatives(dexGlobal.getToolsClass(), getMethods, 2) < 0){
-        LOGW("Register native method failed");
         javaVM->DetachCurrentThread();
+        throw std::runtime_error("Register native method failed");
     }
     LOGV("Vm thread attached");
 }
