@@ -3,7 +3,22 @@
 note that it's just a gradle module, and it needs gradle-experimental plugin to compile,
 but standard gradle plugin is ok if you change build.gradle.</p>
 Actually, the plugin only works when it's running in the targeted process.so there's three way to work with it.
-1.invoke it by xposed.
+1.invoke it by xposed.I've implemented one,but too complex for newer to read.here's a example
+<code><pre>private Application mApplication;
+private String mPackageName;
+static Method DumpMethod;
+if(DumpMethod==null){
+   PackageManager pm = mApplication.getPackageManager();
+   try {
+         ApplicationInfo hookerApp = pm.getApplicationInfo("com.oslorde.dexdumper", PackageManager.GET_SHARED_LIBRARY_FILES);
+         File out = mApplication.getDir(hookerApp.packageName, Context.MODE_PRIVATE);
+         BaseDexClassLoader dexClassLoader = new BaseDexClassLoader(hookerApp.sourceDir, out, hookerApp.nativeLibraryDir, getClass().getClassLoader());
+         Class DexHooker = dexClassLoader.loadClass("com.oslorde.extra.DexDumper");
+         DumpMethod=DexHooker.getMethod("dumpDex", BaseDexClassLoader.class,String.class,int.class);
+         } catch (Exception e) {}
+}
+DumpMethod.invoke(null,mApplication.getClassLoader(),storePath,mode);</pre>
+</code>
 2.replace the true application in the target apk file,load the true application in your custom application,keep the signature if there's a verification.
  But this manner may fail if there's a very strict verification.
 3.load the application into this apk with required res,assets,dex file,snd then invoke the dumpdex method.
@@ -19,6 +34,7 @@ Some codes are tagged with todo, so you may need to ammend the code if these thr
 <p>5. I do suggest you to backsmali the dumped dex to  find out potential problems since some code may be skip due to bugs(there may be some bugs I don't know)
 and after replacement, fix the application name in AndroidManifest.xml.</p>
 6.Not all of the classes in the dex file is valid and not all the dex file is valid.Generally, the biggest one is the right one,extra dex Files and classes can be ignored.
+7.invoke example can be find in MainActivity.java.Don't run it in main thread
 
 <br>
 <br>
