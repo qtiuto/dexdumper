@@ -1,7 +1,7 @@
 # **DexDumper**
 
-<p>&nbsp;&nbsp;&nbsp;&nbsp; This is just a <strong style="font-size:20px;">bridge</strong>,for specific app, you may needed to change some code to re-compile the project,
-note that it's just a <strong style="font-size:20px;">gradle module</strong>, and it needs <strong style="font-size:20px;"> gradle-experimental</strong> plugin to compile,
+<p>&nbsp;&nbsp;&nbsp;&nbsp; This is just a <strong style="font-size:30px;">bridge</strong>,for specific app, you may needed to change some code to re-compile the project,
+note that it's just a <strong style="font-size:30px;">gradle module</strong>, and it needs <strong style="font-size:30px;"> gradle-experimental</strong> plugin to compile,
 but standard gradle plugin is ok if you change build.gradle.</p>
 Actually, the plugin only works when it's running in the targeted process.so there's three way to work with it.
 1.invoke it by xposed.I've implemented one,but too complex for newer to read.here's a example
