@@ -867,7 +867,7 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
             art::DexFile::CodeItem* codeItem=codeOff==0? nullptr: reinterpret_cast<art::DexFile::CodeItem*>(begin + codeOff);
             const art::DexFile::MethodId& methodId=dexFile->method_ids_[methodIdx];
             if(isFixCode()&&thizClass!= nullptr){
-                //LOGV("Fix Code Required,Start Fix,methodIdx=%d",methodIdx);
+                //TODO:For Total method replacement, there may should be a more complex treatment
                 const char* methodName= dexFile->getStringByStringIndex(methodId.name_idx_);
                 char *sig = getProtoSig(methodId.proto_idx_, dexFile);
                 jmethodID  thisMethodId;

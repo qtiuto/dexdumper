@@ -212,6 +212,8 @@ public class DexDumper {
             if(!(loader instanceof BaseDexClassLoader)){
                 if (loader != null && !loader.getClass().getSimpleName().equals("BootClassLoader")) {
                     Utils.logW("the final class loader  is not BootClassLoader but " + loader.getClass().getName() + ". May there should be a fix to get proper classLoader");
+                    //TODO:For custom classloader,this is only a experimental fix,you may need to find out true classloaders or direct native cookies from its fields or methods
+                    //TODO:due to some dynamic code fix manners, e.g. AndFix
                     Utils.logW("Experimental fix start");
                     Field[] fields = loader.getClass().getDeclaredFields();
                     try {
@@ -226,7 +228,7 @@ public class DexDumper {
                             }
                         }
                     } catch (IllegalAccessException e) {
-                        e.printStackTrace();
+                        Utils.log(e);
                     }
                 }
                 // reach boot classloader or null or other.
@@ -273,6 +275,8 @@ public class DexDumper {
                         }
                     }
                     out.close();*/
+                //TODO:before art encrypted dexFile may be loaded directly by custom
+                //TODO:classLoader you can changed the code to get the cookie by yourself
                 field = ReflectUtils.findField(DexFile.class, "mCookie");
                 Object mCookie = field.get(dexFile);
                 String realDexName;
