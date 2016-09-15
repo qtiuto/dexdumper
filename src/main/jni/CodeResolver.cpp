@@ -721,7 +721,6 @@ void* CodeResolver::runResolver(void *args) {
     pwrite(fd,insns,(u8)code->insns_size_in_code_units_<<1,resolver->fileOffset);
     close(fd);
     if(isLog)LOGV("Write insns Over");
-    //LOGV("Loop Over end analysis,%p %p %p %p",resolver,resolver->tryMap,resolver->toolsClass,resolver->env);
     delete resolver;
     //LOGV("Resolver deleted %s %s",clsName ,methodName);
     return nullptr;
@@ -818,7 +817,6 @@ bool CodeResolver::pend() {
     dexGlobal.initPoolIfNeeded(runResolver,threadInit,threadDestroy);
     dexGlobal.pool->submit(this);
 
-   // LOGV("Task pended");
     return true;
 }
 
@@ -892,7 +890,6 @@ void CodeResolver::initRegisters(u4* registers) {
     }
     if(isInstance) {
         registers[codeItem->registers_size_ - paraSize - 1] = methodId->class_idx_;
-        //LOGV("Instance Reg%u init with type=%u",)
     }
     for(i=0;i<paraSize;++i){
         registers[paraStart+i]=protoList->GetTypeItem(i).type_idx_;
