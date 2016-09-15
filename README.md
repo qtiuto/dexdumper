@@ -1,6 +1,6 @@
 # **DexDumper**
-<p>&nbsp;&nbsp;&nbsp;&nbsp; This is just a <b>bridge</b>,for specific app, you may needed to change some code to re-compile the project,
-note that it's just a gradle module, and it needs gradle-experimental plugin to compile,
+<p>&nbsp;&nbsp;&nbsp;&nbsp; This is just a <font size="15" color="red">bridge</font>,for specific app, you may needed to change some code to re-compile the project,
+note that it's just a <font size="10" color="black">gradle module</font>, and it needs <font size="10" color="black"> gradle-experimental plugin</font> to compile,
 but standard gradle plugin is ok if you change build.gradle.</p>
 Actually, the plugin only works when it's running in the targeted process.so there's three way to work with it.
 1.invoke it by xposed.I've implemented one,but too complex for newer to read.here's a example
