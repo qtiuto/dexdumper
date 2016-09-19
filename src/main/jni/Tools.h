@@ -33,4 +33,6 @@ char *toJavaClassName(const char *clsChars);
 std::string &getProtoString(const art::DexFile::ProtoId &protoId,
                             const art::DexFile* dexFile, std::string &protoType);
 void logMethod(const art::DexFile::MethodId& methodId,const art::DexFile* dexFile);
+
+
 #endif //HOOKMANAGER_TOOLS_H

@@ -2,7 +2,6 @@ package com.oslorde.extra;
 
 import android.app.Activity;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 
 import com.oslorde.dexdumper.R;
@@ -17,11 +16,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        String packageName = "com.jjwxc.reader";//for test only
+        String packageName = "com.oslorde.hookmanager";//for test only
         try {
             ApplicationInfo info=getPackageManager().getApplicationInfo(packageName,0);
-            //DexLoader.install(info.sourceDir,getPackageName(),packageName);
-        } catch (PackageManager.NameNotFoundException e) {
+            DexLoader.install(info.sourceDir, getPackageName(), packageName);
+        } catch (Exception e) {
             e.printStackTrace();
         }
 

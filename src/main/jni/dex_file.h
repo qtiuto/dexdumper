@@ -30,6 +30,24 @@
 #include "modifiers.h"
 
 extern void skipULeb128(const uint8_t *&ptr);
+
+static inline void doNotCall(std::stringstream &sstream) { };
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "InfiniteRecursion"
+
+template<typename T1, typename ...T2>
+void doNotCall(std::stringstream &sstream, T1 arg, T2...args) {
+    sstream << arg;
+    doNotCall(sstream, args...);
+};
+#pragma clang diagnostic pop
+
+template<typename... T2>
+void formMessage(std::string &result, T2... args) {
+    std::stringstream sstream;
+    doNotCall(sstream, args...);
+    result = std::move(sstream.str());
+}
 namespace art {
     class MemMap {
     public:
@@ -356,32 +374,6 @@ namespace art {
 
         };
 
-        struct UTF16EmptyFn {
-            void MakeEmpty(std::pair<const char *, const ClassDef *> &pair) const {
-                pair.first = nullptr;
-                pair.second = nullptr;
-            }
-
-            bool IsEmpty(const std::pair<const char *, const ClassDef *> &pair) const {
-                if (pair.first == nullptr) {
-                    return true;
-                }
-                return false;
-            }
-        };
-
-        struct UTF16HashCmp {
-            // Hash function.
-            size_t operator()(const char *key) const {
-                return 0;
-            }
-
-            // std::equal function.
-            bool operator()(const char *a, const char *b) const {
-                return false;
-            }
-        };
-
 
         //private:
 
@@ -443,18 +435,19 @@ namespace art {
                 begin_(beg),size_(0),location_checksum_(0),location_(),header_(header),string_ids_(string_ids),type_ids_(type_ids),
                 field_ids_(field_ids),method_ids_(method_ids),proto_ids_(proto_ids),class_defs_(class_defs){}
         const char * getStringByStringIndex(const uint32_t index)const {
-            if (index >= header_->string_ids_size_)
-                throw std::out_of_range("std::out_of_range:MethodIdx");
+            if (index >= header_->string_ids_size_) {
+                std::string result;
+                formMessage(result, "std::out_of_range:MethodIdx:", index);
+                throw std::out_of_range(result);
+            }
             const byte * ptr= begin_ + string_ids_[index].string_data_off_;
             skipULeb128(ptr);
             return (const char *) ptr;
         }
         const char * getStringFromTypeIndex(u4 index)const {
             if (index >= header_->type_ids_size_) {
-                std::stringstream stringstream;
                 std::string result;
-                stringstream << "std::out_of_range:TypeIndex:" << index;
-                stringstream >> result;
+                formMessage(result, "std::out_of_range:TypeIndex:", index);
                 throw std::out_of_range(result);
             }
             return getStringByStringIndex(type_ids_[index].descriptor_idx_);

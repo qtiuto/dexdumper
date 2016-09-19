@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 
@@ -35,8 +36,8 @@ public class DexDumper {
     private static final String ABI_ARM64_MIRROR="arm64-v8a";
 
     private static final int DEX_FILE_START;
+    public static boolean isDalvik = !isArtInUse();
     private static String sStorePath=Environment.getExternalStorageDirectory().getPath()+"/DexDump";
-    private static Method CurrentApplication;
 
     static {
         if(Build.VERSION.SDK_INT>=24){
@@ -49,7 +50,7 @@ public class DexDumper {
 
     private static native void dumpDexV23(long[] dex_arr,String outDir,boolean isNougat);
 
-    private static native void dumpDexV14(long cookie,String outDir);
+    private static native void dumpDexV16(long cookie, String outDir);
 
     private static native void dumpDexV19ForArt(long cookie,String outDir);
 
@@ -93,11 +94,9 @@ public class DexDumper {
             Application application=getApplication();
             String sourceApk="";
             try {
-                assert application != null;
-
                 ApplicationInfo info=application.getApplicationInfo();
                 String abi=info.nativeLibraryDir;
-                if(info.dataDir.equals(abi)|| TextUtils.isEmpty(abi)){
+                if (info.dataDir.equals(abi) || abi.endsWith("lib") || TextUtils.isEmpty(abi)) {
                     abi=getFirstSupportedAbi();
                 }else {
                     abi=abi.substring(abi.lastIndexOf('/')+1);
@@ -178,8 +177,7 @@ public class DexDumper {
 
     private static String getPackageName(){
         try {
-            return String.valueOf(Class.forName("android.app.ActivityThread").
-                    getDeclaredMethod("currentPackageName").invoke(null));
+            return getApplication().getPackageName();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -188,15 +186,32 @@ public class DexDumper {
 
     private static Application getApplication(){
         try {
-            if(CurrentApplication==null) CurrentApplication=Class.forName("android.app.ActivityThread").
+            final Method CurrentApplication = Class.forName("android.app.ActivityThread").
                     getDeclaredMethod("currentApplication");
-            Application application= (Application) CurrentApplication.invoke(null);
-            if(application!=null) CurrentApplication=null;
+            Application application = null;
+            if (Build.VERSION.SDK_INT < 18) {
+                Handler handler = new Handler(Looper.getMainLooper());
+                final Application[] outA = new Application[1];
+                while (outA[0] == null) {
+                    handler.postAtFrontOfQueue(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                outA[0] = (Application) CurrentApplication.invoke(null);
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    });
+                }
+                application = outA[0];
+            } else while (application == null) {
+                application = (Application) CurrentApplication.invoke(null);
+            }
             return application;
         } catch (Exception e) {
-            e.printStackTrace();
+            throw new DexDumpException("Failed to Find Application", e);
         }
-        return null;
     }
     /**
      *
@@ -327,11 +342,11 @@ public class DexDumper {
                         Utils.log("Detected SDK Int 21-22, invoke dumpDexV21");
                         dumpDexV21(((Number) mCookie).longValue(), dexDir, sdkVer == 22);
                     } else if (sdkVer >= 19 && isArtInUse()) {
-                        Utils.log("Detected Art in SDK Int 19-20, invoke dumpDexV19ForArt");
+                        Utils.log("Detected Art in SDK Int 19-20 art, invoke dumpDexV19ForArt");
                         dumpDexV19ForArt(((Number) mCookie).longValue(), dexDir);
                     } else {
-                        Utils.log("Detected SDK Int 14-18, invoke dumpDexV14");
-                        dumpDexV14(((Number) mCookie).longValue(), dexDir);
+                        Utils.log("Detected SDK Int 16-20, invoke dumpDexV16");
+                        dumpDexV16(((Number) mCookie).longValue(), dexDir);
                     }
                 }
             }

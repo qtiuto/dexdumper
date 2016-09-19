@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.oslorde.dexdumper"
-    android:sharedUserId="com.oslorde.hookmanager">
+    package="com.oslorde.dexdumper">
 
     <application
         android:allowBackup="true"

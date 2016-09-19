@@ -2,10 +2,64 @@
 // Created by asus on 2016/8/16.
 //
 #include "CodeResolver.h"
-JNINativeMethod getMethods[]={
-        {"getFieldOffset","(Ljava/lang/reflect/Field;)I",(void*)getFieldOffset},
-        {"getMethodVIdx","(Ljava/lang/reflect/Method;)I",(void*)getMethodVIdx}
+
+const JNINativeMethod getMethods[] = {
+        {"getFieldOffset", "(Ljava/lang/reflect/Field;)I",       (void*)getFieldOffset},
+        {"getMethodVIdx",  "(Ljava/lang/reflect/Method;)I",      (void *) getMethodVIdx},
+        {"getSuperIdx",    "(Ljava/lang/reflect/Constructor;)I", (void *) getMethodVIdx}
 };
+struct InlineMethod {
+    const char *classDescriptor;
+    const char *methodName;
+    const char *methodSignature;
+    u4 methodIdx;
+} InlineOpsTable[] = {
+        {"Lorg/apache/harmony/dalvik/NativeTestTarget;", "emptyInlineMethod",   "()V"},
+        {"Ljava/lang/String;",                           "charAt",              "(I)C"},
+        {"Ljava/lang/String;",                           "compareTo",           "(Ljava/lang/String;)I"},
+        {"Ljava/lang/String;",                           "equals",              "(Ljava/lang/Object;)Z"},
+        {"Ljava/lang/String;",                           "fastIndexOf",         "(II)I"},
+        {"Ljava/lang/String;",                           "isEmpty",             "()Z"},
+        {"Ljava/lang/String;",                           "length",              "()I"},
+
+        {"Ljava/lang/Math;",                             "abs",                 "(I)I"},
+        {"Ljava/lang/Math;",                             "abs",                 "(J)J"},
+        {"Ljava/lang/Math;",                             "abs",                 "(F)F"},
+        {"Ljava/lang/Math;",                             "abs",                 "(D)D"},
+        {"Ljava/lang/Math;",                             "min",                 "(II)I"},
+        {"Ljava/lang/Math;",                             "max",                 "(II)I"},
+        {"Ljava/lang/Math;",                             "sqrt",                "(D)D"},
+        {"Ljava/lang/Math;",                             "cos",                 "(D)D"},
+        {"Ljava/lang/Math;",                             "sin",                 "(D)D"},
+
+        {"Ljava/lang/Float;",                            "floatToIntBits",      "(F)I"},
+        {"Ljava/lang/Float;",                            "floatToRawIntBits",   "(F)I"},
+        {"Ljava/lang/Float;",                            "intBitsToFloat",      "(I)F"},
+
+        {"Ljava/lang/Double;",                           "doubleToLongBits",    "(D)J"},
+        {"Ljava/lang/Double;",                           "doubleToRawLongBits", "(D)J"},
+        {"Ljava/lang/Double;",                           "longBitsToDouble",    "(J)D"},
+
+        // These are implemented exactly the same in Math and StrictMath,
+        // so we can make the StrictMath calls fast too. Note that this
+        // isn't true in general!
+        {"Ljava/lang/StrictMath;",                       "abs",                 "(I)I"},
+        {"Ljava/lang/StrictMath;",                       "abs",                 "(J)J"},
+        {"Ljava/lang/StrictMath;",                       "abs",                 "(F)F"},
+        {"Ljava/lang/StrictMath;",                       "abs",                 "(D)D"},
+        {"Ljava/lang/StrictMath;",                       "min",                 "(II)I"},
+        {"Ljava/lang/StrictMath;",                       "max",                 "(II)I"},
+        {"Ljava/lang/StrictMath;",                       "sqrt",                "(D)D"},
+};
+enum {
+    InlineOpsTableSize = 29 //anti editor bug
+};
+
+void CodeResolver::resetInlineTable() {
+    for (int i = 0; i < InlineOpsTableSize; ++i) {
+        InlineOpsTable[i].methodIdx = CodeResolver::UNDEFINED;
+    }
+}
 extern JavaVM* javaVM;
 static thread_local bool isLog;
 static thread_local JNIEnv* env;
@@ -15,7 +69,10 @@ public:
     u4 clsTypeIdx;
     const art::DexFile* curDexFile= nullptr;
 } globalRef;
-jint  getFieldOffset(JNIEnv *env,jclass thisClass,jobject field){
+
+u4 binarySearchMethod(const char *className, const char *methodName, const char *sig);
+
+jint getFieldOffset(JNIEnv *env, jclass thisClass, jobject field) {
     jfieldID fieldID=env->FromReflectedField(field);
     if(isDalvik()){
         dalvik::InstField* instField= reinterpret_cast<dalvik::InstField*>(reinterpret_cast<u1*>(fieldID));
@@ -152,6 +209,344 @@ void* CodeResolver::runResolver(void *args) {
             //usleep(20);
         }
         try {
+            //Handle Runtime altered code
+            if (!isDalvik()) {
+                switch (opCode) {
+#define CHECK_FIELD_NPE() u1 rOb= preData >> 4;\
+                resolver->checkRegRange(rOb);\
+                if(curNode->registerTypes[rOb]==TypePrimitive){\
+                    isNpeReturn= true;\
+                    goto Next;\
+                }
+#define SIMPLE_IGET() resolver->alterField(curNode, insns, rOb, pos);\
+                u1 rA=preData&u1(0xf);\
+                resolver->checkRegRange(rA);\
+                curNode->registerTypes[rA]=TypePrimitive;\
+                pos+=2;goto JudgeTry;
+
+#define IGET_CODE(x)CHECK_FIELD_NPE();\
+                *ins=x;\
+                SIMPLE_IGET()
+
+                    case igetQ: {
+                        IGET_CODE(iget)
+                    }
+                    case igetWQ: {
+                        CHECK_FIELD_NPE();
+                        *ins = igetW;
+                        resolver->alterField(curNode, insns, rOb, pos);
+                        u1 rA = preData & u1(0xf);
+                        resolver->checkRegRange(rA + 1);
+                        curNode->registerTypes[rA] = TypePrimitive;
+                        curNode->registerTypes[rA + 1] = TypePrimitive;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case igetObQ: {
+                        CHECK_FIELD_NPE();
+                        *ins = igetOb;
+                        resolver->alterField(curNode, insns, rOb, pos);
+                        u1 rA = preData & u1(0xf);
+                        resolver->checkRegRange(rA);
+                        curNode->registerTypes[rA] =
+                                dexGlobal.dexFile->field_ids_[insns[pos + 1]].type_idx_;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+#define IPUT_CODE(x)CHECK_FIELD_NPE();\
+                *ins=x;\
+                resolver->alterField(curNode, insns, rOb, pos);\
+                pos+=2;goto JudgeTry;
+
+                    case iputQ: {
+                        IPUT_CODE(iput);
+                    }
+                    case iputWQ: {
+                        IPUT_CODE(iputW);
+                    }
+                    case iputObQ: {
+                        IPUT_CODE(iputOb);
+                    }
+                    case invokeVirtualQ: {
+#define handle_invokeVirtualQ(Op, reg)\
+                        resolver->checkRegRange(reg);\
+                        if(curNode->registerTypes[reg]==TypePrimitive){\
+                            isNpeReturn= true;\
+                            /*NullPointerException;*/\
+                            goto Next;\
+                        }\
+                        *ins=Op;\
+                         /*LOGV("Meet invokeVirtualQ,regNum=%d",reg);*/\
+                        u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[reg], insns[pos + 1]);\
+                        /*if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);*/\
+                        if(methodIdx==UNDEFINED) goto Next;\
+                        resolver->changeIdx(insns, pos, methodIdx);\
+                        pos+=3;goto JudgeTry;
+
+                        u1 iReg = u1(insns[pos + 2] & 0xf);
+                        handle_invokeVirtualQ(invokeVirtual, iReg);
+                    }
+                    case invokeVirtualRQ: {
+                        handle_invokeVirtualQ(invokeVirtualR, insns[pos + 2])
+                    }
+                    case iputBooleanQ: {
+                        IPUT_CODE(iputBoolean);
+                    }
+                    case iputByteQ: {
+                        IPUT_CODE(iputByte);
+                    }
+                    case iputCharQ: {
+                        IPUT_CODE(iputChar);
+                    }
+                    case iputShortQ: {
+                        IPUT_CODE(iputShort);
+                    }
+                    case igetBooleanQ: {
+                        IGET_CODE(igetBoolean)
+                    }
+                    case igetByteQ: {
+                        IGET_CODE(igetByte)
+                    }
+                    case igetCharQ: {
+                        IGET_CODE(igetChar)
+                    }
+                    case igetShortQ: {
+                        IGET_CODE(igetShort)
+                    }
+                        //Lambda codes may affect some regs,but they will be
+                        // reset before quick invoke some just skip them.
+                    case invokeLambda:
+                    case captureVariable:
+                    case createLambda:
+                    case liberateVariable:
+                    case boxLambda:
+                    case unboxLambda: {
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    default: {
+                        break;
+                    }
+                }
+            } else {
+                //unfortunately, below 4.1 some opcode are large than 0xff
+                switch (opCode) {
+                    case OP_RETURN_VOID_BARRIER:
+                        ++pos;
+                        *ins = returnV;
+                        goto JudgeTry;
+                    case OP_IGET_VOLATILE: {
+#define FIELD_INTEGER_REPLACE(Op) \
+                        u2 idx=insns[pos+1];\
+                        idx= (u2) dexGlobal.dexFile->getStringFromTypeIndex(dexGlobal.dexFile->field_ids_[idx].type_idx_)[0];\
+                        switch (idx){\
+                            case 'B':*ins=Op##Byte;\
+                                break;\
+                            case 'C':*ins=Op##Char;\
+                                break;\
+                            case 'F':\
+                            case 'I':\
+                                *ins=Op;\
+                                break;\
+                            case 'S':*ins=Op##Short;\
+                                break;\
+                            case 'Z':*ins=Op##Boolean;\
+                                break;\
+                            default:{\
+                                throw std::runtime_error("Unexpected Type For"#Op);\
+                            }\
+                        };
+
+#define VOLATILE_REPLACE(Op)FIELD_INTEGER_REPLACE(Op)\
+                        pos+=2;
+
+                        CHECK_FIELD_NPE();
+                        VOLATILE_REPLACE(iget);
+                        u1 rA = preData & u1(0xf);
+                        resolver->checkRegRange(rA);
+                        curNode->registerTypes[rA] = TypePrimitive;
+                        goto JudgeTry;
+                    }
+                    case OP_IPUT_VOLATILE: {
+                        CHECK_FIELD_NPE();
+                        VOLATILE_REPLACE(iput);
+                        goto JudgeTry;
+                    }
+                    case OP_SGET_VOLATILE: {
+                        CHECK_FIELD_NPE();
+                        VOLATILE_REPLACE(sget);
+                        resolver->checkRegRange(preData);
+                        curNode->registerTypes[preData] = TypePrimitive;
+                        goto JudgeTry;
+                    }
+                    case OP_SPUT_VOLATILE: {
+                        VOLATILE_REPLACE(sput);
+                        goto JudgeTry;
+                    }
+#undef VOLATILE_REPLACE
+                    case OP_IGET_OBJECT_VOLATILE: {
+                        CHECK_FIELD_NPE();
+                        *ins = igetOb;
+                        u1 rA = preData & u1(0xf);
+                        resolver->checkRegRange(rA);
+                        curNode->registerTypes[rA] = dexGlobal.dexFile->field_ids_[insns[pos +
+                                                                                         1]].type_idx_;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_IGET_WIDE_VOLATILE: {
+                        CHECK_FIELD_NPE();
+                        *ins = igetW;
+                        u1 rA = preData & u1(0xf);
+                        resolver->checkRegRange(rA + 1);
+                        curNode->registerTypes[rA] = TypePrimitive;
+                        curNode->registerTypes[rA + 1] = TypePrimitive;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_IPUT_WIDE_VOLATILE: {
+                        CHECK_FIELD_NPE();
+                        *ins = iputW;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_SGET_WIDE_VOLATILE: {
+                        *ins = sgetW;
+                        pos += 2;
+                        resolver->checkRegRange(preData + 1);
+                        curNode->registerTypes[preData] = TypePrimitive;
+                        curNode->registerTypes[preData + 1] = TypePrimitive;
+                        goto JudgeTry;
+                    }
+                    case OP_SPUT_WIDE_VOLATILE: {
+                        *ins = sputW;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_IPUT_OBJECT_VOLATILE: {
+                        CHECK_FIELD_NPE();
+                        *ins = iputOb;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_SGET_OBJECT_VOLATILE: {
+                        *ins = igetOb;
+                        resolver->checkRegRange(preData);
+                        curNode->registerTypes[preData] = dexGlobal.dexFile->field_ids_[insns[pos +
+                                                                                              1]].type_idx_;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_SPUT_OBJECT_VOLATILE: {
+                        *ins = sputOb;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+                    case OP_BREAKPOINT: {
+                        throw std::runtime_error("OP_BREAKPOINT shouldn't occurr in normal code");
+                    }
+                    case OP_THROW_VERIFICATION_ERROR:
+                        isNpeReturn = true;
+                        goto Next;
+                    case OP_EXECUTE_INLINE: {
+                        {
+                            u1 iReg = u1(insns[pos + 2] & 0xf);
+                            resolver->checkRegRange(iReg);
+                            if (curNode->registerTypes[iReg] == TypePrimitive) {
+                                isNpeReturn = true;
+                                //NullPointerException;
+                                goto Next;
+                            }
+                        }
+                        goto ExecuteInlineHandle;
+                    }
+                    case OP_EXECUTE_INLINE_RANGE: {
+                        resolver->checkRegRange(insns[pos + 2]);
+                        if (curNode->registerTypes[insns[pos + 2]] == TypePrimitive) {
+                            isNpeReturn = true;
+                            //NullPointerException;
+                            goto Next;
+                        }
+                        ExecuteInlineHandle:
+                        u2 idx = insns[pos + 1];
+                        if (idx >= InlineOpsTableSize) {
+                            std::string result;
+                            formMessage(result, "ExecuteIdx out of range:", idx);
+                            throw std::runtime_error(result);
+                        }
+                        InlineMethod &inlineMethod = InlineOpsTable[idx];
+                        if (inlineMethod.methodIdx == UNDEFINED) {
+                            inlineMethod.methodIdx = binarySearchMethod(
+                                    inlineMethod.classDescriptor, inlineMethod.methodName,
+                                    inlineMethod.methodSignature);
+                        }
+                        insns[pos + 1] = (u2) inlineMethod.methodIdx;
+                        pos += 3;
+                        goto JudgeTry;
+                    }
+                    case OP_IGET_QUICK: {
+                        CHECK_FIELD_NPE();
+                        FIELD_INTEGER_REPLACE(iget);
+                        SIMPLE_IGET();
+                    }
+                    case OP_IPUT_OBJECT_QUICK: {
+                        IPUT_CODE(iputOb);
+                    }
+                    case OP_IPUT_WIDE_QUICK: {
+                        IPUT_CODE(iputW);
+                    }
+                    case OP_IGET_WIDE_QUICK: {
+                        IGET_CODE(igetW);
+                    }
+#undef IGET_CODE
+                    case OP_IPUT_QUICK: {
+                        CHECK_FIELD_NPE();
+                        FIELD_INTEGER_REPLACE(iput);
+                        resolver->alterField(curNode, insns, rOb, pos);
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+#undef FIELD_INTEGER_REPLACE
+                    case OP_IGET_OBJECT_QUICK: {
+                        CHECK_FIELD_NPE();
+                        *ins = igetOb;
+                        resolver->alterField(curNode, insns, rOb, pos);
+                        u1 rA = preData & u1(0xf);
+                        resolver->checkRegRange(rA);
+                        curNode->registerTypes[rA] =
+                                dexGlobal.dexFile->field_ids_[insns[pos + 1]].type_idx_;
+                        pos += 2;
+                        goto JudgeTry;
+                    }
+#undef CHECK_FIELD_NPE
+                    case OP_INVOKE_OBJECT_INIT_RANGE: {
+                        if (preData == 0) {
+                            *ins = invokeDirectR;
+                        } else if (preData == 1) {
+                            insns[0] = invokeDirect;
+                        } else
+                            throw std::runtime_error("OP_INVOKE_OBJECT_INIT_RANGE with illegal op");
+                        pos += 3;
+                        goto JudgeTry;
+                    }
+                    case OP_INVOKE_VIRTUAL_QUICK:
+                    case OP_INVOKE_SUPER_QUICK: {
+                        u1 iReg = u1(insns[pos + 2] & 0xf);
+                        handle_invokeVirtualQ(opCode - OP_INVOKE_VIRTUAL_QUICK + invokeVirtual,
+                                              iReg);
+                    }
+                    case OP_INVOKE_VIRTUAL_QUICK_RANGE:
+                    case OP_INVOKE_SUPER_QUICK_RANGE: {
+                        handle_invokeVirtualQ(
+                                opCode - OP_INVOKE_VIRTUAL_QUICK_RANGE + invokeVirtualR,
+                                insns[pos + 2]);
+                    }
+                    default: {
+                        break;
+                    }
+                }
+            }
+            //Handle Normal Code
             switch (opCode){
                 case move:
                 case moveOb:{
@@ -402,7 +797,7 @@ void* CodeResolver::runResolver(void *args) {
                             type=globalRef.clsTypeIdx;
                         } else{
                             auto dexFile = dexGlobal.dexFile;
-                            binarySearchType(typeName + 1, type, dexFile);
+                            type = binarySearchType(typeName + 1, dexFile);
                             if (type == UNDEFINED) {
                                 LOGW("Can't find array component type woth name %s by binary search,loop find",
                                      typeName + 1);
@@ -511,136 +906,7 @@ void* CodeResolver::runResolver(void *args) {
                     break;
                 }
                 case invokeStaticR:{pos+=3;break;}
-#define CHECK_FIELD_NPE() u1 rOb= preData >> 4;\
-                resolver->checkRegRange(rOb);\
-                if(curNode->registerTypes[rOb]==TypePrimitive){\
-                    isNpeReturn= true;\
-                    goto Next;\
-                }
 
-#define IGET_CODE(x) CHECK_FIELD_NPE();\
-                *ins=x;\
-                resolver->alterField(curNode, insns, rOb, pos);\
-                u1 rA=preData&u1(0xf);\
-                resolver->checkRegRange(rA);\
-                curNode->registerTypes[rA]=TypePrimitive;\
-                pos+=2;break;
-
-                case igetQ:{
-                    IGET_CODE(iget)
-                }
-                case igetWQ:{
-                    CHECK_FIELD_NPE();
-                    *ins=igetW;
-                    resolver->alterField(curNode, insns, rOb, pos);
-                    u1 rA=preData&u1(0xf);
-                    resolver->checkRegRange(rA+1);
-                    curNode->registerTypes[rA]=TypePrimitive;
-                    curNode->registerTypes[rA+1]=TypePrimitive;
-                    pos+=2;break;
-                }
-                case igetObQ:{
-                    CHECK_FIELD_NPE();
-                    *ins=igetOb;
-                    resolver->alterField(curNode, insns, rOb, pos);
-                    u1 rA=preData&u1(0xf);
-                    resolver->checkRegRange(rA);
-                    curNode->registerTypes[rA]=
-                            dexGlobal.dexFile->field_ids_[insns[pos+1]].type_idx_;
-                    pos+=2;break;
-                }
-#define IPUT_CODE(x) CHECK_FIELD_NPE();\
-                *ins=x;\
-                resolver->alterField(curNode, insns, rOb, pos);\
-                pos+=2;break;
-
-                case iputQ:{
-                    IPUT_CODE(iput);
-                }
-                case iputWQ:{
-                    IPUT_CODE(iputW);
-                }
-                case iputObQ:{
-                    IPUT_CODE(iputOb);
-                }
-                case invokeVirtualQ:{
-                    u1 iReg=u1(insns[pos+2]&0xf);
-                    resolver->checkRegRange(iReg);
-                    if(curNode->registerTypes[iReg]==TypePrimitive){
-                        isNpeReturn= true;
-                        //NullPointerException;
-                        goto Next;
-                    }
-                    *ins=invokeVirtual;
-                    //LOGV("Meet invokeVirtualQ,regNum=%d",iReg);
-                    resolver->checkRegRange(iReg);
-                    u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[iReg], insns[pos + 1]);
-                    //if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);
-                    if(methodIdx==UNDEFINED) {
-                        goto Next;
-                    }
-                    resolver->changeIdx(insns, pos, methodIdx);
-                    pos+=3;break;
-                }
-                case invokeVirtualRQ:{
-                    resolver->checkRegRange(insns[pos+2]);
-                    if(curNode->registerTypes[insns[pos+2]]==TypePrimitive){
-                        isNpeReturn= true;
-                        //NullPointerException;
-                        goto Next;
-                    }
-                    *ins=invokeVirtualR;
-                    u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[insns[pos + 2]], insns[pos + 1]);
-                    resolver->changeIdx(insns, pos, methodIdx);
-                    pos+=3;break;
-                }
-                case iputBooleanQ:{
-                    IPUT_CODE(iputBoolean);
-                }
-                case iputByteQ:{
-                    IPUT_CODE(iputByte);
-                }
-                case iputCharQ:{
-                    IPUT_CODE(iputChar);
-                }
-                case iputShortQ:{
-                    IPUT_CODE(iputShort);
-                }
-                case igetBooleanQ: {
-                    IGET_CODE(igetBoolean)
-                }
-                case igetByteQ:{
-                    IGET_CODE(igetByte)
-                }
-                case igetCharQ:{IGET_CODE(igetChar)}
-                case igetShortQ:{IGET_CODE(igetShort)}
-                    //Lambda codes may affect some regs,but they will be
-                    // reset before quick invoke some just skip them.
-                case invokeLambda:{
-                    pos+=2;
-                    break;
-                }
-                case captureVariable:{
-                    pos+=2;
-                    break;
-                }
-                case createLambda:{
-                    pos+=2;
-                    break;
-                }
-                case liberateVariable:{
-                    //For object type, it's still unimplemented
-                    pos+=2;
-                    break;
-                }
-                case boxLambda:{
-                    pos+=2;
-                    break;
-                }
-                case unboxLambda:{
-                    pos+=2;
-                    break;
-                }
                 case nop:{
                     switch (preData) {
                         case PACKED_SWITCH: {
@@ -683,6 +949,7 @@ void* CodeResolver::runResolver(void *args) {
                     break;
                 }
             }
+            JudgeTry:
             TryItem* tryItem;
             if(resolver->tryMap != nullptr &&
                (tryItem= resolver->tryMap->seekTry(thisPos)) != nullptr){
@@ -726,7 +993,38 @@ void* CodeResolver::runResolver(void *args) {
     return nullptr;
 }
 
-void CodeResolver::binarySearchType(const char *typeName, u4 &type, const art::DexFile *dexFile) {
+u4 binarySearchMethod(const char *className, const char *methodName, const char *sig) {
+    const art::DexFile *dexFile = dexGlobal.dexFile;
+    u4 low = 0, high = dexFile->header_->method_ids_size_ - 1, mid;
+    int value;
+    while (low <= high) {
+        mid = (low + high) >> 1;
+        auto methodId = dexFile->method_ids_[mid];
+        auto name = dexFile->getStringFromTypeIndex(methodId.class_idx_);
+        value = dexUtf8Cmp(name, className);
+        if (value == 0) {
+            name = dexFile->getStringByStringIndex(methodId.name_idx_);
+            value = dexUtf8Cmp(name, methodName);
+            if (value == 0) {
+                const art::DexFile::ProtoId &protoId = dexFile->proto_ids_[methodId.proto_idx_];
+                name = dexFile->getStringFromTypeIndex(protoId.return_type_idx_);
+                value = dexUtf8Cmp(name, strchr(sig, ')'));
+                if (value == 0) {
+                    std::string proto("");
+                    getProtoString(protoId, dexFile, proto);
+                    value = dexUtf8Cmp(&proto[0], sig + 1);
+                    if (value == 0) return mid;
+                };
+            }
+        }
+        if (value > 0) {
+            high = mid - 1;
+        } else low = mid + 1;
+    }
+    return CodeResolver::UNDEFINED;
+}
+
+u4 CodeResolver::binarySearchType(const char *typeName, const art::DexFile *dexFile) {
     u4 low = 0, high = dexFile->header_->type_ids_size_ - 1, mid;
     int value;
     while (low <= high) {
@@ -734,8 +1032,7 @@ void CodeResolver::binarySearchType(const char *typeName, u4 &type, const art::D
         auto name = dexFile->getStringFromTypeIndex(mid);
         value = dexUtf8Cmp(name, typeName);
         if (value == 0) {
-            type = mid;
-            break;
+            return mid;
         } else if (value > 0) {
             high = mid - 1;
         } else low = mid + 1;
@@ -787,7 +1084,7 @@ bool CodeResolver::pend() {
         globalRef.strTypeIdx=UNDEFINED;
         globalRef.clsTypeIdx=UNDEFINED;
         //String type is more possible to appear than class type
-        binarySearchType("Ljava/lang/String;", globalRef.strTypeIdx, globalRef.curDexFile);
+        globalRef.strTypeIdx = binarySearchType("Ljava/lang/String;", globalRef.curDexFile);
         if (globalRef.strTypeIdx == UNDEFINED) {
             for (u4 i = 0, N = dexGlobal.dexFile->header_->type_ids_size_; i < N && (globalRef.
                     strTypeIdx == UNDEFINED || globalRef.clsTypeIdx == UNDEFINED); ++i) {
@@ -888,6 +1185,7 @@ void CodeResolver::initRegisters(u4* registers) {
     for(;i<paraStart;++i){
         registers[i]=UNDEFINED;
     }
+
     if(isInstance) {
         registers[codeItem->registers_size_ - paraSize - 1] = methodId->class_idx_;
     }
@@ -895,13 +1193,14 @@ void CodeResolver::initRegisters(u4* registers) {
         registers[paraStart+i]=protoList->GetTypeItem(i).type_idx_;
     }
 }
-u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
-    if(clsIdx==TypeException){
+
+u4 CodeResolver::getVMethodFromIndex(u4 classIdx, u4 vIdx) {
+    if (classIdx == TypeException) {
         LOGW("Unexpected type TypeException,as catch all has no type specified");
         return UNDEFINED;
     }
-    //if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",clsIdx,vIdx);
-    const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
+    //if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",classIdx,vIdx);
+    const char *clsName = dexGlobal.dexFile->getStringFromTypeIndex(classIdx);
     if (clsName[0] != 'L' && clsName[0] !=
                              '[') {//Array type is namely sub-type of object,so inherit all the virtual methods of object
         LOGE("Invalid class Foundm name=%s c=%s ", clsName,
@@ -961,7 +1260,7 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
                 const art::DexFile::ProtoId& protoId= dexGlobal.dexFile->proto_ids_[mid->proto_idx_];\
                 value=dexUtf8Cmp(dexGlobal.dexFile->getStringFromTypeIndex(protoId.return_type_idx_),retType);\
                 if(value==0){\
-                    std::string protoString;\
+                    std::string protoString("");\
                     getProtoString(protoId,dexGlobal.dexFile,protoString);\
                     value=dexUtf8Cmp(&protoString[0],proto);\
                     if(value==0)\
@@ -1035,11 +1334,13 @@ u4 CodeResolver::getVMethodFromIndex(u4 clsIdx, u4 vIdx) {
     LOGE("Can't find method id for %s", cls);
     return UNDEFINED;
 }
-u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
-    const char*clsName =dexGlobal.dexFile->getStringFromTypeIndex(clsIdx);
+
+u4 CodeResolver::getFiledFromOffset(u4 classIdx, u4 fieldOffset) {
+    const char *clsName = dexGlobal.dexFile->getStringFromTypeIndex(classIdx);
     if (clsName[0] != 'L') {//only object type has field.
         LOGE("Qfield Invalid class Found f=%s,classIdx=%u,vIdx=%x",
-             dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_), clsIdx, fieldOffset);
+             dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_), classIdx,
+             fieldOffset);
     }
     const char *cClassName = toJavaClassName(clsName);
 
@@ -1161,4 +1462,3 @@ u4 CodeResolver::getFiledFromOffset(u4 clsIdx, u4 fieldOffset) {
     LOGE("Can't find field id for %s", cls);
     return UNDEFINED;
 }
-

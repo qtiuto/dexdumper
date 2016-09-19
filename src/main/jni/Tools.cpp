@@ -4,13 +4,13 @@
 
 #include "Tools.h"
 
-
 char *getProtoSig(const u4 index, const art::DexFile *dexFile) {
     using namespace art;
     std::string protoType("(");
     if (index >= dexFile->header_->proto_ids_size_) {
-        LOGE("unexpected proto index %d", index);
-        throw std::out_of_range("std::out_of_range:ProtoIndex");
+        std::string result;
+        formMessage(result, "std::out_of_range:ProtoIndex", index);
+        throw std::out_of_range(result);
     }
     auto &protoId = dexFile->proto_ids_[index];
     getProtoString(protoId,dexFile, protoType);

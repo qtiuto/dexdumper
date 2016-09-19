@@ -43,6 +43,27 @@
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__bit_reference \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\climits \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__split_buffer \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\sstream \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ostream \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ios \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__locale \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\mutex \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__mutex_base \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\chrono \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ctime \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ratio \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\system_error \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cerrno \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\errno.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\locale.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\streambuf \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\locale \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdarg \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdlib \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\stdlib.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\nl_types.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\bitset \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\istream \
   jni/invoke_type.h jni/jni.h jni/modifiers.h jni/android/log.h
 
 jni/FixedThreadPool.h:
@@ -138,6 +159,48 @@ D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__bit_r
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\climits:
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__split_buffer:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\sstream:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ostream:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ios:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__locale:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\mutex:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__mutex_base:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\chrono:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ctime:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ratio:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\system_error:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cerrno:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\errno.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\locale.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\streambuf:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\locale:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdarg:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdlib:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\stdlib.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\nl_types.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\bitset:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\istream:
 
 jni/invoke_type.h:
 

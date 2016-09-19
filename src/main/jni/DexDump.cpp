@@ -25,20 +25,24 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_setMode(JNIEnv *env, jc
         dexGlobal.poolSize=size;
     }
 }
-JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV14(JNIEnv *env,jclass thisClass,jlong cookie,jstring baseOutDir){
+
+JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV16(JNIEnv *env, jclass thisClass,
+                                                                    jlong cookie,
+                                                                    jstring baseOutDir) {
     dalvik::DexOrJar* pDexOrJar = (dalvik::DexOrJar*) cookie;
     dalvik::DvmDex* pDvmDex;
     if(pDexOrJar->isDex){
         pDvmDex=pDexOrJar->pRawDexFile->pDvmDex;
     } else pDvmDex=pDexOrJar->pJarFile->pDvmDex;
+    LOGV("Dex1=%p,Dex2=%p", pDvmDex->pDexFile, pDvmDex->pHeader);
     dalvik::DexFile* dex_file=pDvmDex->pDexFile;
     dalvik::DexFile* dexFile=new dalvik::DexFile;
-    memcpy(dex_file,dexFile, sizeof(dalvik::DexFile));
+    memcpy(dexFile, dex_file, sizeof(dalvik::DexFile));
     const dalvik::DexHeader* header1= pDvmDex->pHeader;
     const dalvik::DexHeader* header2=dexFile->pHeader;
     bool isF=true;
     if(header1!=header2){
-        LOGW("Header unequal,check it");
+        LOGW("Header unequal,check it,mag1=%s,mag2=%s", header1->magic, header2->magic);
         if(memcmp(header1->magic,header2->magic,8)<0){
             isF=false;
         }
@@ -63,6 +67,7 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV14(JNIEnv *env,
     jboolean isCopy ;
     const char* outDir= env->GetStringUTFChars(baseOutDir, &isCopy );
     dexGlobal.sdkOpt=DALVIK;
+    CodeResolver::resetInlineTable();
     dumpDex(env,dex_files,outDir);
     env->ReleaseStringUTFChars(baseOutDir, outDir);
     delete dexFile;
@@ -916,13 +921,11 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                 section->size+=codeItem->insns_size_in_code_units_*2U;//insns are two byte unit
 
                 if(putCodeItem(dataSection,codeItem,section,begin)){
-                    assert(clsTypeIdx == methodId.class_idx_);
                     CodeResolver *resolver = new CodeResolver(env, codeItem, &methodId,
                                                               (accessFlag & dalvik::ACC_STATIC) ==
                                                               0);
                     section->fileOffsetRef = &resolver->fileOffset;
                     resolver->pend();
-
                 };
             }
         }
@@ -983,47 +986,49 @@ static bool putCodeItem(std::vector<::DataSection *>& dataSection,
         debugSect->size= (u4) (ptr - begin - debugOff);
         dataSection.push_back(debugSect);
     }
-    if(!isDalvik()){
-        return fixOpCodeOrNot(codeItem);
-    }
-    return false;
+    bool ret = fixOpCodeOrNot(codeItem);
+    return ret;
 }
 
 static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem) {
-    int i;
+    u4 i;
     for(i=0;i<codeItem->insns_size_in_code_units_;) {
         u1 opCode = u1((codeItem->insns_[i]) & (u2) 0xff);
-        switch (opCode) {
-            case 0x73:
-            case 0xe3:
-            case 0xe4:
-            case 0xe5:
-            case 0xe6:
-            case 0xe7:
-            case 0xe8:
-            case 0xe9:
-            case 0xea:
-            case 0xeb:
-            case 0xec:
-            case 0xed:
-            case 0xee:
-            case 0xef:
-            case 0xf0:
-            case 0xf1:
-            case 0xf2:
-            case 0xf3:
-            case 0xf5:
-            case 0xf6:
-            case 0xf7:
-            case 0xf8:
-            case 0xf9:
-            {
-                return true;
+        if (!isDalvik()) {
+            switch (opCode) {
+                case 0x73:
+                case 0xe3:
+                case 0xe4:
+                case 0xe5:
+                case 0xe6:
+                case 0xe7:
+                case 0xe8:
+                case 0xe9:
+                case 0xea:
+                case 0xeb:
+                case 0xec:
+                case 0xed:
+                case 0xee:
+                case 0xef:
+                case 0xf0:
+                case 0xf1:
+                case 0xf2:
+                case 0xf3:
+                case 0xf5:
+                case 0xf6:
+                case 0xf7:
+                case 0xf8:
+                case 0xf9: {
+                    return true;
+                }
+                default: {
+                    break;
+                }
             }
-            default: {
-                break;
-            }
+        } else if (opCode >= 0xe3 && opCode < 0xff) {
+            return true;
         }
+
 
         if ((opCode > 0x3e && opCode <= 0x43) || (opCode >= 0x79 && opCode <= 0x7a) ||
             (opCode >= 0xef && opCode <= 0xff)/*unused code*/)

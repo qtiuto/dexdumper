@@ -4,6 +4,7 @@ import android.util.SparseArray;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
@@ -22,14 +23,18 @@ public final class ClassTools {
     private static Map<String, SparseArray<Field>> cachedFTables;
     private static Map<String, SparseArray<Method>> cachedVTables;
 
-    private static synchronized native int getFieldOffset(Field field);
-    private static synchronized native int getMethodVIdx(Method method);
+    private static native int getFieldOffset(Field field);
+
+    private static native int getMethodVIdx(Method method);
+
+    private static native int getSuperIdx(Constructor constructor);
 
     public static void init(ClassLoader loader) {
         ClassTools.loader = loader;
         byteOut = new ByteOut();
         cachedFTables = new WeakHashMap<>(32);
         cachedVTables = new WeakHashMap<>(32);
+
     }
 
     public static void clear() {
@@ -55,13 +60,27 @@ public final class ClassTools {
         if((fTable=cachedFTables.get(className))==null){
             Class cls=findClass(className);
             if(cls==null){
-                Utils.logE("Invalid class name f=" + className);
+                Utils.logE("Invalid class name for field:" + className);
                 return null;
             }
             fTable=getAllInstanceFields(cls);
             cachedFTables.put(className,fTable);
         }
         return fTable.get(offset);
+    }
+
+    public static Method getMethodFromIndex(String className, int methodIndex) {
+        SparseArray<Method> vTable;
+        if ((vTable = cachedVTables.get(className)) == null) {
+            Class cls = findClass(className);
+            if (cls == null) {
+                Utils.logE("Invalid class name for method:" + className);
+                return null;
+            }
+            vTable = getAllVMethods(cls);
+            cachedVTables.put(className, vTable);
+        }
+        return vTable.get(methodIndex);
     }
 
     public static synchronized byte[] convertMember(Member member) {
@@ -113,20 +132,7 @@ public final class ClassTools {
         }
     }
 
-    public static Method getMethodFromIndex(String className, int methodIndex) {
-        SparseArray<Method> vTable;
-        if((vTable=cachedVTables.get(className))==null){
-            Utils.log("Into find class");
-            Class cls=findClass(className);
-            if(cls==null){
-                Utils.logE("Invalid class name m=" + className);
-                return null;
-            }
-            vTable=getAllVMethods(cls);
-            cachedVTables.put(className,vTable);
-        }
-        return vTable.get(methodIndex);
-    }
+    //Convenience for native callback
     public static byte[] getDexSHA1Hash(String path){
         try {
             File file=new File(path);
@@ -149,7 +155,7 @@ public final class ClassTools {
         return null;
     }
     private static SparseArray<Field> getAllInstanceFields(Class cls){
-        ArrayList<Field> list=getAllInstanceFields(cls,null,false);
+        ArrayList<Field> list = getAllInstanceFieldsNotCall(cls, null, false);
         SparseArray<Field> fieldOffsetArr=new SparseArray<>();
         for(Field field:list){
             fieldOffsetArr.put(getFieldOffset(field),field);//super class offset must be less.
@@ -157,11 +163,12 @@ public final class ClassTools {
         System.gc();
         return fieldOffsetArr;
     }
-    private static ArrayList<Field> getAllInstanceFields(Class cls,ArrayList<Field> list,boolean isSuper){
+
+    private static ArrayList<Field> getAllInstanceFieldsNotCall(Class cls, ArrayList<Field> list, boolean isSuper) {
         if(list==null) list=new ArrayList<>();
         Class superClass=cls.getSuperclass();
         if(superClass!=null)
-            getAllInstanceFields(superClass,list,true);
+            getAllInstanceFieldsNotCall(superClass, list, true);
         Field[] fields=cls.getDeclaredFields();
         for(Field field:fields){
             if(!Modifier.isStatic(field.getModifiers())){
@@ -172,7 +179,7 @@ public final class ClassTools {
         return list;
     }
     private static SparseArray<Method> getAllVMethods(Class cls){
-        ArrayList<Method> list=getAllVMethods(cls,null);
+        ArrayList<Method> list = getAllVMethodsNotCall(cls, null);
         SparseArray<Method> vIdxArr=new SparseArray<>();
         for(Method method:list){
             vIdxArr.put(getMethodVIdx(method),method);
@@ -180,11 +187,12 @@ public final class ClassTools {
         System.gc();
         return vIdxArr;
     }
-    private static ArrayList<Method> getAllVMethods(Class cls,ArrayList<Method> list){
+
+    private static ArrayList<Method> getAllVMethodsNotCall(Class cls, ArrayList<Method> list) {
         if(list==null) list=new ArrayList<>();
         Class superClass=cls.getSuperclass();
         if(superClass!=null)
-            getAllVMethods(superClass,list);
+            getAllVMethodsNotCall(superClass, list);
         Method[] methods=cls.getDeclaredMethods();
         for(Method method:methods){
             int flags=method.getModifiers();
@@ -195,6 +203,7 @@ public final class ClassTools {
                 //else list.set(index,method);
             }
         }
+
         return list;
     }
     @Deprecated

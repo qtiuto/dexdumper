@@ -31,7 +31,7 @@ Some codes are tagged with todo, so you may need to ammend the code if these thr
 3.Dex loaded by bytes directly by custom classloader. get it by reflection to get the cookie field. if it's stored by native code only, dlopen and dlsym
 
 ####Extra:
-4.Dalvik support is pretty experimental as I don't know ins replacement rule and never test it in dalvik runtime.'
+4.Dalvik support is a little bit experimental as there can be a lot of tricks dalvik runtime.'
 <p>5. I do suggest you to backsmali the dumped dex to  find out potential problems since some code may be skip due to bugs(there may be some bugs I don't know)
 and after replacement, fix the application name in AndroidManifest.xml.</p>
 6.Not all of the classes in the dex file is valid and not all the dex file is valid.Generally, the biggest one is the right one,extra dex Files and classes can be ignored.

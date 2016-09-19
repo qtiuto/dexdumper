@@ -94,16 +94,21 @@ public:
             env->DeleteLocalRef(tools);
         }
     }
-    jclass getToolsClass(){
+
+    const jclass getToolsClass() {
         return toolsClass;
     }
-    jmethodID getGetMethodID(){
+
+    const jmethodID getGetMethodID() {
         return getMethodId;
     }
-    jmethodID getGetFieldID(){
+
+
+    const jmethodID getGetFieldID() {
         return getFieldId;
     }
-    jmethodID getConvertMember(){
+
+    const jmethodID getConvertMember() {
         return convertMemberId;
     }
     void releaseToolsClass(JNIEnv* env){

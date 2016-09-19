@@ -6,7 +6,7 @@ model{
 
         defaultConfig {
             applicationId "com.oslorde.dexdumper"
-            minSdkVersion.apiLevel 14
+            minSdkVersion.apiLevel 16
             targetSdkVersion.apiLevel 23
             versionCode 1
             versionName "1.0"

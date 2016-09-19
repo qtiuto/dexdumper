@@ -43,6 +43,25 @@
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cmath \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\math.h \
   D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\functional \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\sstream \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ostream \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ios \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__locale \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\mutex \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__mutex_base \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\chrono \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ctime \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\time.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ratio \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\system_error \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cerrno \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\locale.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\streambuf \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\locale \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdarg \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\nl_types.h \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\bitset \
+  D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\istream \
   jni/globals.h jni/read_barrier_c.h jni/read_barrier_option.h \
   jni/invoke_type.h jni/modifiers.h jni/dalvik/Object.h jni/dalvik/Dex.h \
   jni/dalvik/DexFile.h jni/checksum.h jni/art-member.h jni/base/macros.h \
@@ -140,6 +159,44 @@ D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cmath:
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\math.h:
 
 D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\functional:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\sstream:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ostream:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ios:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__locale:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\mutex:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\__mutex_base:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\chrono:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ctime:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\time.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\ratio:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\system_error:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cerrno:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\locale.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\streambuf:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\locale:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\cstdarg:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/../../android/support/include\nl_types.h:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\bitset:
+
+D:/android-ndk-r12b/build//../sources/cxx-stl/llvm-libc++/libcxx/include\istream:
 
 jni/globals.h:
 

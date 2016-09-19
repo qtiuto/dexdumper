@@ -10,7 +10,6 @@
 #include "jni.h"
 #include "art-member.h"
 #include "Commons.h"
-#include "base/hash_map.h"
 #include "dalvik/Object.h"
 #include "dex_file.h"
 
@@ -41,15 +40,17 @@ var_out=  artMethod->mem_name;\
 }
 
 class CodeResolver{
-    friend class ref;
+public:
+    enum {
+        UNDEFINED = 0xffffffff,
+    };
 private:
     enum RegisterType{
         TypeArray=0xffff+1,
-        TypeException = 0xffffffff - 2,
-        TypePrimitive = 0xffffffff - 1,
-        UNDEFINED=0xffffffff,
+        TypeException = UNDEFINED - 2,
+        TypePrimitive = UNDEFINED - 1,
     };
-    enum {
+    enum FileOpCode {
         nop=0,
         move=0x1,
         move16=0x2,
@@ -169,7 +170,8 @@ private:
         //stub b0-cf 4 bit computation
         //stub d0-d7 16 bit constant computation
         //stub d8-e2 8 bit constant computation
-
+    };
+    enum ArtOpCode {
         igetQ=0xe3,
         igetWQ=0xe4,
         igetObQ=0xe5,
@@ -194,6 +196,37 @@ private:
         boxLambda=0xf8,
         unboxLambda=0xf9,
     };
+    enum DalvikOpCode {
+        OP_IGET_VOLATILE = 0xe3,
+        OP_IPUT_VOLATILE = 0xe4,
+        OP_SGET_VOLATILE = 0xe5,
+        OP_SPUT_VOLATILE = 0xe6,
+        OP_IGET_OBJECT_VOLATILE = 0xe7,
+        OP_IGET_WIDE_VOLATILE = 0xe8,
+        OP_IPUT_WIDE_VOLATILE = 0xe9,
+        OP_SGET_WIDE_VOLATILE = 0xea,
+        OP_SPUT_WIDE_VOLATILE = 0xeb,
+        OP_BREAKPOINT = 0xec,
+        OP_THROW_VERIFICATION_ERROR = 0xed,
+        OP_EXECUTE_INLINE = 0xee,
+        OP_EXECUTE_INLINE_RANGE = 0xef,
+        OP_INVOKE_OBJECT_INIT_RANGE = 0xf0,
+        OP_RETURN_VOID_BARRIER = 0xf1,
+        OP_IGET_QUICK = 0xf2,
+        OP_IGET_WIDE_QUICK = 0xf3,
+        OP_IGET_OBJECT_QUICK = 0xf4,
+        OP_IPUT_QUICK = 0xf5,
+        OP_IPUT_WIDE_QUICK = 0xf6,
+        OP_IPUT_OBJECT_QUICK = 0xf7,
+        OP_INVOKE_VIRTUAL_QUICK = 0xf8,
+        OP_INVOKE_VIRTUAL_QUICK_RANGE = 0xf9,
+        OP_INVOKE_SUPER_QUICK = 0xfa,
+        OP_INVOKE_SUPER_QUICK_RANGE = 0xfb,
+        OP_IPUT_OBJECT_VOLATILE = 0xfc,
+        OP_SGET_OBJECT_VOLATILE = 0xfd,
+        OP_SPUT_OBJECT_VOLATILE = 0xfe,
+    };
+
 
     class JumpNode {
     public:
@@ -363,8 +396,10 @@ private:
     CodeResolver(){}
     CodeResolver(const CodeResolver& copy)= delete;
     CodeResolver& operator=(CodeResolver&)= delete;
-    u4 getVMethodFromIndex(u4 clsIdx, u4 vIdx);
-    u4 getFiledFromOffset(u4 clsIdx, u4 fieldOffset);
+
+    u4 getVMethodFromIndex(u4 classIdx, u4 vIdx);
+
+    u4 getFiledFromOffset(u4 classIdx, u4 fieldOffset);
     void initTries();
     void initRegisters(u4* registers);
     void checkRegRange(u4 index){
@@ -398,7 +433,9 @@ public:
         delete tryMap;
     }
 
-    static void binarySearchType(const char *typeName, u4 &type, const art::DexFile *dexFile);
+    static void resetInlineTable();
+
+    static u4 binarySearchType(const char *typeName, const art::DexFile *dexFile);
 };
 
 #endif
