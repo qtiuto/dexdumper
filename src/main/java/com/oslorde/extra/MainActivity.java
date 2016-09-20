@@ -29,7 +29,7 @@ public class MainActivity extends Activity {
             public void run() {
                 super.run();
                 try {
-                    Thread.sleep(1000);
+                    Thread.sleep(5000);
                     DexDumper.dumpDex((BaseDexClassLoader) getClassLoader(),
                             getDir("test_dex",MODE_PRIVATE).getPath(),null,
                             new File(getFilesDir(),"libs"),null,DumpMode.MODE_LOOSE);

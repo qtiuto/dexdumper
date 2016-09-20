@@ -8,9 +8,7 @@ char *getProtoSig(const u4 index, const art::DexFile *dexFile) {
     using namespace art;
     std::string protoType("(");
     if (index >= dexFile->header_->proto_ids_size_) {
-        std::string result;
-        formMessage(result, "std::out_of_range:ProtoIndex", index);
-        throw std::out_of_range(result);
+        throw std::out_of_range(formMessage("std::out_of_range:ProtoIndex", index));
     }
     auto &protoId = dexFile->proto_ids_[index];
     getProtoString(protoId,dexFile, protoType);

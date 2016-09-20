@@ -68,13 +68,16 @@ public class ByteOut {
      * Writes the specified byte {@code oneByte} to the OutputStream. Only the
      * low order byte of {@code oneByte} is written.
      *
-     * @param oneByte the byte to be written.
+     * @param c the byte to be written.
      */
-    public synchronized void write(char oneByte) {
+    public synchronized void write(char c) {
         if (count == buf.length) {
             expand(1);
         }
-        buf[count++] = (byte) oneByte;
+        buf[count++] = (byte) (c & 0xff);
+        if (c > 0xff) {
+            buf[count++] = (byte) (c >> 8);
+        }
     }
 
     /**

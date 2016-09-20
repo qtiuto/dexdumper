@@ -67,7 +67,6 @@ private:
     jclass toolsClass;
     jmethodID getMethodId;
     jmethodID getFieldId;
-    jmethodID convertMemberId;
 public:
     u1 poolSize=2;
     u1 dumpMode;
@@ -86,10 +85,10 @@ public:
     void setToolsClass(JNIEnv* env){
         if(toolsClass== nullptr){
             jclass tools=env->FindClass("com/oslorde/extra/ClassTools");
-            getFieldId= env->GetStaticMethodID(tools,"getFieldFromOffset","(Ljava/lang/String;I)Ljava/lang/reflect/Field;");
-            convertMemberId = env->GetStaticMethodID(tools, "convertMember",
-                                                     "(Ljava/lang/reflect/Member;)[B");
-            getMethodId=env->GetStaticMethodID(tools,"getMethodFromIndex","(Ljava/lang/String;I)Ljava/lang/reflect/Method;");
+            getFieldId = env->GetStaticMethodID(tools, "getFieldFromOffset",
+                                                "(Ljava/lang/String;I)[B");
+            getMethodId = env->GetStaticMethodID(tools, "getMethodFromIndex",
+                                                 "(Ljava/lang/String;I)[B");
             toolsClass= (jclass) env->NewGlobalRef(tools);
             env->DeleteLocalRef(tools);
         }
@@ -98,19 +97,13 @@ public:
     const jclass getToolsClass() {
         return toolsClass;
     }
-
     const jmethodID getGetMethodID() {
         return getMethodId;
     }
-
-
     const jmethodID getGetFieldID() {
         return getFieldId;
     }
 
-    const jmethodID getConvertMember() {
-        return convertMemberId;
-    }
     void releaseToolsClass(JNIEnv* env){
         env->DeleteGlobalRef(toolsClass);
         toolsClass= nullptr;

@@ -4,7 +4,6 @@ import android.util.SparseArray;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
@@ -27,9 +26,10 @@ public final class ClassTools {
 
     private static native int getMethodVIdx(Method method);
 
-    private static native int getSuperIdx(Constructor constructor);
+    private static native byte[][] getVMethodsNative(Member reflectTarget, boolean isField);//getDeclaredMethods is not reliable and stable,
+    // Maybe a custom designed method is required, not implemented now
 
-    public static void init(ClassLoader loader) {
+    static void init(ClassLoader loader) {
         ClassTools.loader = loader;
         byteOut = new ByteOut();
         cachedFTables = new WeakHashMap<>(32);
@@ -37,7 +37,7 @@ public final class ClassTools {
 
     }
 
-    public static void clear() {
+    static void clear() {
         byteOut = null;
         cachedFTables = null;
         cachedVTables = null;
@@ -54,62 +54,98 @@ public final class ClassTools {
         return null;
     }
 
-    public static Field getFieldFromOffset(String className, int offset) {
+    /**
+     * In order the get the field from the ids fastest,we consider the declared class as the best.No overriding!
+     */
+    public static byte[] getFieldFromOffset(String className, int offset) {
        // Utils.logOslorde("Into get Field Offset c="+className+"offset="+offset);
+        Class cls = findClass(className);
+        if (cls == null) {
+            Utils.logE("Invalid class name for field:" + className);
+            return null;
+        }
         SparseArray<Field> fTable;
         if((fTable=cachedFTables.get(className))==null){
-            Class cls=findClass(className);
-            if(cls==null){
-                Utils.logE("Invalid class name for field:" + className);
-                return null;
-            }
+
             fTable=getAllInstanceFields(cls);
-            cachedFTables.put(className,fTable);
-        }
-        return fTable.get(offset);
-    }
+            synchronized (cachedFTables) {
+                cachedFTables.put(className, fTable);}
 
-    public static Method getMethodFromIndex(String className, int methodIndex) {
-        SparseArray<Method> vTable;
-        if ((vTable = cachedVTables.get(className)) == null) {
-            Class cls = findClass(className);
-            if (cls == null) {
-                Utils.logE("Invalid class name for method:" + className);
-                return null;
-            }
-            vTable = getAllVMethods(cls);
-            cachedVTables.put(className, vTable);
         }
-        return vTable.get(methodIndex);
-    }
-
-    public static synchronized byte[] convertMember(Member member) {
-        ByteOut out = byteOut;
-        if(member instanceof Method){
-            Method method= (Method) member;
-            appendClassType(method.getDeclaringClass(), out);
-            out.write('|');
-            writeMUtf8(method.getName(), out);
-            out.write('|');
-            appendClassType(method.getReturnType(), out);
-            out.write('|');
-            Class[] paras=method.getParameterTypes();
-            for(Class cl:paras){
-                appendClassType(cl, out);
-            }
-        } else {
-            Field field= (Field) member;
-            appendClassType(field.getDeclaringClass(), out);
+        Field field = fTable.get(offset);
+        if (field == null) return null;
+        ByteOut out = byteOut;//I think that concurrence possibility is low
+        synchronized (out) {
+            Class topClass = field.getDeclaringClass();
+            appendClassType(topClass, out);
             out.write('|');
             writeMUtf8(field.getName(), out);
             out.write('|');
             appendClassType(field.getType(), out);
+            if (topClass != cls) {
+                ArrayList<Class> belows = new ArrayList<>(4);
+                belows.add(0, cls);
+                while ((cls = cls.getSuperclass()) != topClass) belows.add(cls);
+                for (int i = 0, N = belows.size(); i < N; ++i) {
+                    Class belowClass = belows.get(i);
+                    out.write('|');
+                    appendClassType(belowClass, out);
+                }
+            }
+            out.write('\0');
+            byte[] ret = out.toByteArray();
+            out.reset();
+            return ret;
         }
-        out.write('\0');
-        byte[] ret = out.toByteArray();
-        out.reset();
-        return ret;
     }
+
+    /**
+     * For virtual method,the method we get is actually the topmost method, so we consider the lowest class as the best to avoid overriding
+     */
+    public static byte[] getMethodFromIndex(String className, int methodIndex) {
+        Class cls = findClass(className);
+        if (cls == null) {
+            Utils.logE("Invalid class name for method:" + className);
+            return null;
+        }
+        SparseArray<Method> vTable;
+        if ((vTable = cachedVTables.get(className)) == null) {
+            vTable = getAllVMethods(cls);
+            synchronized (cachedVTables) {
+                cachedVTables.put(className, vTable);}
+        }
+        Method vMethod = vTable.get(methodIndex);
+        if (vMethod == null) return null;
+        ByteOut out = byteOut;
+        synchronized (out) {
+            Class topClass = vMethod.getDeclaringClass();
+            appendClassType(cls, out);
+            out.write('|');
+            writeMUtf8(vMethod.getName(), out);
+            out.write('|');
+            appendClassType(vMethod.getReturnType(), out);
+            out.write('|');
+            Class[] paras = vMethod.getParameterTypes();
+            for(Class cl:paras){
+                appendClassType(cl, out);
+            }
+            if (cls.isInterface()) cls = int[].class;// act as sub class of Object;
+            if (topClass != cls) {
+                ArrayList<Class> supers = new ArrayList<>(4);
+                while ((cls = cls.getSuperclass()) != topClass) supers.add(cls);
+                supers.add(topClass);
+                for (Class superClass : supers) {
+                    out.write('|');
+                    appendClassType(superClass, out);
+                }
+            }
+            out.write('\0');
+            byte[] ret = out.toByteArray();
+            out.reset();
+            return ret;
+        }
+    }
+
 
     //java is utf16 encoding
     public static void writeMUtf8(String src, ByteOut out) {
@@ -160,7 +196,6 @@ public final class ClassTools {
         for(Field field:list){
             fieldOffsetArr.put(getFieldOffset(field),field);//super class offset must be less.
         }
-        System.gc();
         return fieldOffsetArr;
     }
 
@@ -169,40 +204,51 @@ public final class ClassTools {
         Class superClass=cls.getSuperclass();
         if(superClass!=null)
             getAllInstanceFieldsNotCall(superClass, list, true);
-        Field[] fields=cls.getDeclaredFields();
-        for(Field field:fields){
-            if(!Modifier.isStatic(field.getModifiers())){
-                if(!isSuper||!Modifier.isPrivate(field.getModifiers()))
-                    list.add(field);//just for a little memory saving,no filter is ok.
+        try {
+            Field[] fields = cls.getDeclaredFields();
+            for (Field field : fields) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    if (!isSuper || !Modifier.isPrivate(field.getModifiers()))
+                        list.add(field);//just for a little memory saving,no filter is ok.
+                }
             }
+        } catch (NoClassDefFoundError e) {
+            Utils.log(e);
         }
         return list;
     }
     private static SparseArray<Method> getAllVMethods(Class cls){
+        if (cls.isArray() || cls.isInterface()) cls = Object.class;
         ArrayList<Method> list = getAllVMethodsNotCall(cls, null);
         SparseArray<Method> vIdxArr=new SparseArray<>();
         for(Method method:list){
             vIdxArr.put(getMethodVIdx(method),method);
         }
-        System.gc();
         return vIdxArr;
     }
 
     private static ArrayList<Method> getAllVMethodsNotCall(Class cls, ArrayList<Method> list) {
         if(list==null) list=new ArrayList<>();
-        Class superClass=cls.getSuperclass();
-        if(superClass!=null)
-            getAllVMethodsNotCall(superClass, list);
-        Method[] methods=cls.getDeclaredMethods();
-        for(Method method:methods){
-            int flags=method.getModifiers();
-            if(!Modifier.isPrivate(flags)&&!Modifier.isStatic(flags)){
-                //int index=getMethodIndex(list,method);
-                //if(index==-1)
-                    list.add(method);//as the overriden method share the same method,they will be replace when added into the sparsearray.
-                //else list.set(index,method);
+        do {
+            Method[] methods;
+            try {
+                methods = cls.getDeclaredMethods();
+                for (Method method : methods) {
+                    int flags = method.getModifiers();
+                    if (!Modifier.isPrivate(flags) && !Modifier.isStatic(flags)) {
+                        //int index=getMethodIndex(list,method);
+                        //if(index==-1)
+                        list.add(method);//as the overriden method share the same method,they will be replace when added into the sparsearray.
+                        //else list.set(index,method);
+                    }
+                }
+            } catch (NoClassDefFoundError e) {
+                //In some cases, class of newer api level is  the return type or one of parameter types;
+                //then NoClassDefFoundError is thrown;
+                Utils.log(e);
             }
-        }
+
+        } while ((cls = cls.getSuperclass()) != null);
 
         return list;
     }

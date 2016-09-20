@@ -43,10 +43,10 @@ void doNotCall(std::stringstream &sstream, T1 arg, T2...args) {
 #pragma clang diagnostic pop
 
 template<typename... T2>
-void formMessage(std::string &result, T2... args) {
+std::string formMessage(T2... args) {
     std::stringstream sstream;
     doNotCall(sstream, args...);
-    result = std::move(sstream.str());
+    return sstream.str();
 }
 namespace art {
     class MemMap {
@@ -436,9 +436,7 @@ namespace art {
                 field_ids_(field_ids),method_ids_(method_ids),proto_ids_(proto_ids),class_defs_(class_defs){}
         const char * getStringByStringIndex(const uint32_t index)const {
             if (index >= header_->string_ids_size_) {
-                std::string result;
-                formMessage(result, "std::out_of_range:MethodIdx:", index);
-                throw std::out_of_range(result);
+                throw std::out_of_range(formMessage("std::out_of_range:MethodIdx:", index));
             }
             const byte * ptr= begin_ + string_ids_[index].string_data_off_;
             skipULeb128(ptr);
@@ -446,9 +444,7 @@ namespace art {
         }
         const char * getStringFromTypeIndex(u4 index)const {
             if (index >= header_->type_ids_size_) {
-                std::string result;
-                formMessage(result, "std::out_of_range:TypeIndex:", index);
-                throw std::out_of_range(result);
+                throw std::out_of_range(formMessage("std::out_of_range:TypeIndex:", index));
             }
             return getStringByStringIndex(type_ids_[index].descriptor_idx_);
         }
