@@ -267,6 +267,7 @@ private:
                     Range* newRange=new Range(newStart,range->start-1,range->preRange);
                     range->preRange=newRange;
                     nextRange=range;
+
                     return nullptr;//insert range if new start go back;
                 }
             }while ((range=range->preRange)!= nullptr);
@@ -280,15 +281,19 @@ private:
             nextRange= nullptr;
             return nullptr;
         };
-        static bool checkRange(Range* range,u4 newStart){
-            if(newStart<=range->start){
-                return false;
-            }
-            while ((range=range->preRange)!= nullptr){
+
+        static bool checkRange(Range *lastRange, Range *nextRange, u4 newStart, u4 lastPos) {
+            Range *range = nextRange == nullptr ? lastRange : nextRange->preRange;
+            u4 *rEndPtr = &range->end;
+            u4 endValue = range->end;
+            *rEndPtr = lastPos;
+            do {
                 if(newStart<=range->end&&newStart>=range->start){
+                    *rEndPtr = endValue;
                     return false;
                 }
-            }
+            } while ((range = range->preRange) != nullptr);
+            *rEndPtr = endValue;
             return true;
         }
         static void checkNextRange(u4 pos, Range *&nextRange, Range *lastRange){
@@ -299,9 +304,9 @@ private:
                 return;
             }
             if(nextRange->preRange->end!=nextRange->start-1){
-                LOGE("Not concated range!,curEnd=%u,newStart=%u",
-                     nextRange->preRange->end,(lastRange->printRange(),nextRange->start-1));
-                throw std::exception();
+                throw std::runtime_error(
+                        formMessage("Not concatated range!,curEnd=", nextRange->preRange->end,
+                                    ",newStart=", (lastRange->printRange(), nextRange->start - 1)));
             }
             if (pos>=nextRange->start){
                 nextRange=seekNextRange(nextRange,lastRange);
@@ -367,18 +372,31 @@ private:
             if(size<=4) isMapped= false;
             else{
                 //LOGV("Tries mapped start=%u,end=%u,size=%u",start,end,size);
-                isMapped=true; u4 tmpDiv;
+                isMapped = true;
+                div = end - start;
+                u4 tmpDiv;
                 for(int i=0;i<size-2;++i){
                     tmpDiv=tries[i+1].pos-tries[i].pos;
-                    if(tmpDiv>div) div=tmpDiv;
+                    if (tmpDiv < div) div = tmpDiv;
                 }
-                int len=(end-start)/div;
-                if(len*div!=end-start)++len;
+                int len = 1 + (end - start) / div;
                 typedef TryItem* tryPtr;
                 tryMap=new tryPtr[len];
-                memset(tryMap, 0,sizeof(CodeResolver::TryItem *)*len);
+                memset(tryMap, 0, sizeof(tryPtr) * len);
                 for(int i=0;i<size;++i){
-                    tryMap[(tries[i].pos-start)/div]=&tries[i];
+                    u4 pos = (tries[i].pos - start) / div;
+                    if (pos >= len || tryMap[pos] != nullptr) {
+                        if (pos >= len)
+                            LOGE("pos %u > len %d", pos, len);
+                        else
+                            LOGE("Abort try serials now try pos=%u, to be"
+                                         " replace by try %d at pos=%u", tryMap[pos]->pos, i, pos);
+                        for (int j = 0; j < size; ++j) {
+                            LOGV("Try %d at pos=%u", j, tries[j].pos);
+                        }
+                        abort();
+                    }
+                    tryMap[pos] = &tries[i];
                 }
             }
         }
@@ -411,7 +429,9 @@ private:
     static void threadInit();
     static void* runResolver(void* args);
     static void threadDestroy();
-    static bool forkNode(const art::DexFile::CodeItem *code, JumpNode *curNode, Range*lastRAnge, u4 lastPos, u4 newPos, const char* curClass);
+
+    static bool forkNode(const art::DexFile::CodeItem *code, JumpNode *curNode, Range *lastRAnge,
+                         Range *nextRange, u4 lastPos, u4 newPos);
 
      void alterField(const JumpNode *curNode,
                      u2 *insns, u1 rOb, u4 pos);
@@ -433,6 +453,7 @@ public:
         delete tryMap;
     }
 
+    static bool checkAndReplaceOpCodes(u2 *insns, u4 insns_size, u4 &outPos, u1 &outOp);
     static void resetInlineTable();
 
     static u4 binarySearchType(const char *typeName, const art::DexFile *dexFile);

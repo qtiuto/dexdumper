@@ -43,7 +43,7 @@ public final class ClassTools {
         cachedVTables = null;
     }
     //jni callback
-    public static Class findClass(String className){
+    private static Class findClass(String className) {
         try {
             return Class.forName(className, false, loader);//in case loadClass does not work for array classes
             // as I'm not sure will there be an implementation doesn't allow loading array classes directly;

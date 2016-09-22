@@ -193,11 +193,6 @@ u1* writeUnsignedLeb128(u1* ptr, u4 data)
     }
     return ptr;
 }
-void writeUnsignedLeb128ToFile(int fd,u4 data,u4 offset){
-    u1 pStream[5];
-    u1* end=writeUnsignedLeb128(pStream,data);
-    pwrite(fd,pStream,end-pStream,offset);
-}
  int unsignedLeb128Size(u4 data)
 {
     int count = 0;

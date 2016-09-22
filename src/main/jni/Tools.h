@@ -24,7 +24,6 @@ int readSignedLeb128(int& size,const u1 *&ptr);
 int readSignedLeb128(const u1 *ptr,int& size);
 int unsignedLeb128Size(u4 data);
 u1* writeUnsignedLeb128(u1* ptr, u4 data);
-void writeUnsignedLeb128ToFile(int fd,u4 data,u4 f_offset);
 
 int dexUtf8Cmp(const char *s1, const char *s2);
 

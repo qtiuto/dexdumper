@@ -10,16 +10,10 @@
 #include "base/macros.h"
 
 #define MANAGED PACKED(4)
-class MANAGED ObjectReference{
-    uint32_t reference_;
-};
-class MANAGED CompressedReference : public ObjectReference{};
-class  MANAGED GcRoot{
-    mutable CompressedReference root_;
-};
+
 class ArtField final{
 public:
-    GcRoot declaring_class_;
+    uint32_t declaring_class_;
 
     uint32_t access_flags_;
 
@@ -31,7 +25,7 @@ public:
 };
 class ArtFieldKitkat final{
 public:
-    void* declaring_class_;
+    uint32_t declaring_class_;
 
     uint32_t access_flags_;
 
@@ -143,13 +137,13 @@ public:
 };
 class ArtMethod final{
 public:
-    GcRoot declaring_class_;
+    uint32_t declaring_class_;
 
     // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
-    GcRoot dex_cache_resolved_methods_;
+    uint32_t dex_cache_resolved_methods_;
 
     // Short cuts to declaring_class_->dex_cache_ member for fast compiled code access.
-    GcRoot dex_cache_resolved_types_;
+    uint32_t dex_cache_resolved_types_;
 
     // Access flags; low 16 bits are defined by spec.
     uint32_t access_flags_;

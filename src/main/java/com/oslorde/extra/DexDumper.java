@@ -324,6 +324,12 @@ public class DexDumper {
                 } catch (Exception e) {
                     throw new DexDumpException("Error occured when writing dexName into DexInfo.txt", e);
                 }
+                java.lang.Process logProcess = null;
+                try {
+                    logProcess = Runtime.getRuntime().exec("logcat -f " + sStorePath + '/' + "log.txt | grep DexDump");
+                } catch (Exception ignored) {
+                    Utils.log("Can't init logcat");
+                }
                 if (isArray(mCookie)) {
                     int N = Array.getLength(mCookie);
                     Utils.log("Cookie Length:" + N);
@@ -348,6 +354,9 @@ public class DexDumper {
                         Utils.log("Detected SDK Int 16-20, invoke dumpDexV16");
                         dumpDexV16(((Number) mCookie).longValue(), dexDir);
                     }
+                }
+                if (logProcess != null) {
+                    logProcess.destroy();
                 }
             }
 

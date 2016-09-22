@@ -1,6 +1,4 @@
 #include <vector>
-#include <unistd.h>
-#include <fcntl.h>
 #include <sys/types.h>
 #include <string>
 #include <cstdio>
@@ -15,6 +13,7 @@
 #include "art-member.h"
 #include "Commons.h"
 #include "CodeResolver.h"
+#include "DexCacheFile.h"
 
 #ifndef _Included_com_oslorde_extra_DexDumper
 #define _Included_com_oslorde_extra_DexDumper
@@ -154,8 +153,9 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
 
 static void writeHeadSection(const HeadSection head[7],  int fd);
 
-static void writeDataSection( int fd,DataSection* section);
-static void updateRef(int fd,DataSection* section);
+static void writeDataSection(DexCacheFile &dexCacheFile, DataSection *section);
+
+static void updateRef(DexCacheFile &dexCacheFile, DataSection *section);
 bool compareOffset( DataSection* const &first, DataSection*const &sec);
 bool compareDexType( DataSection*const &first, DataSection*const &sec);
 static void insertEmptySections(std::vector<::DataSection *> &dataSection);
@@ -165,14 +165,15 @@ static void fixMapListHeaderPart(const art::DexFile::Header *header, const HeadS
 static void changeItemState(ItemState itemStates[],int index,DataSection *section,u4& size,u4 data_off,u2 type, bool requiredPadding);
 
 
-static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int methodSize, const jclass &thizClass,
-                                  std::vector<::DataSection *> &dataSection, const u1 *&ptr,ClassDataSection* classData,u4 clsTypeIdx);
+static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile* dexFile, int methodSize, const jclass &thizClass,
+                                  std::vector<::DataSection *> &dataSection, const u1 *&ptr,
+                                  ClassDataSection *classData);
 
 static void putAnnoSetItem( std::vector<::DataSection *>& dataSection,DataSection* par,
                             u4 parOffset,const art::DexFile::AnnotationSetItem* setItem, u1* begin) ;
 
 static bool judgeVersion(const unsigned char* str);
 
-static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem);
+bool fixOpCodeOrNot(u2 *insns, u4 insns_szie, u4 *outPos);
 #endif
 #endif

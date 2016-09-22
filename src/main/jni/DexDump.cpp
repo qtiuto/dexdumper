@@ -292,10 +292,10 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             const DexFile::ClassDef &clsDefItem = *(classDefs + i);
             const char* clsChars=dex->getStringFromTypeIndex(clsDefItem.class_idx_);
             //LOGV("Start put cls data,cls name:%s,classIdx=%u",clsChars,clsDefItem.class_idx_);
-            dexGlobal.curClass=clsChars;
             jclass thizClass= nullptr;
             if(isFixCode()){
                 char *fixedClassName = toJavaClassName(clsChars);
+                //LOGV("Class to be find=%s",fixedClassName);
                 jstring clsName = env->NewStringUTF(fixedClassName);//skip primitive class
                 thizClass = (jclass) env->CallStaticObjectMethod(toolsClass, findMethod, clsName);
                 if(thizClass==NULL){
@@ -412,10 +412,10 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
 
 
                 fixMethodCodeIfNeeded(env, dex, directMethodSize, thizClass,
-                                      dataSection, ptr,section , clsDefItem.class_idx_);
+                                      dataSection, ptr, section);
 
                 fixMethodCodeIfNeeded(env, dex, virtualMethodSize, thizClass,
-                                      dataSection, ptr,section , clsDefItem.class_idx_);
+                                      dataSection, ptr, section);
             }
             if(clsDefItem.static_values_off_ != 0){
                 //LOGV("Static values off,%u",clsDefItem.static_values_off_);
@@ -441,28 +441,29 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             fileSize+=linkData->size;
         }
         header.file_size_=fileSize;
-        pwrite(fd,&header, sizeof(DexFile::Header),0);
+        DexCacheFile dexCacheFile(fd, fileSize);
+        dexCacheFile.pwrite(&header, sizeof(DexFile::Header), 0);
         LOGV("Start writing,data_off=%u,data_size=%u,file size=%u",header.data_off_,header.data_size_,fileSize);
-        truncate(dexFileName, fileSize);
 
-		lseek(fd,header.data_off_,SEEK_SET);
-        LOGV("Start write data Section pos=%ld",lseek(fd,0,SEEK_CUR));
+        dexCacheFile.seek(header.data_off_);
+        LOGV("Start write data Section pos=%ld", dexCacheFile.tell());
 		for (DataSection* section : dataSection) {
-            writeDataSection(fd,section);
+            writeDataSection(dexCacheFile, section);
 		}
-        if(lseek(fd,0,SEEK_CUR)-header.data_off_!=header.data_size_){
+        if (dexCacheFile.tell() - header.data_off_ != header.data_size_) {
             LOGW("Write dex file wrong,some elements are "
                          "forgotten to be emplaced,now pos=%ld",lseek(fd,0,SEEK_CUR));
         }
         if(linkData!= nullptr){
             LOGV("Start writing link data");
-            write(fd,(const char*)linkData->data, linkData->size);
+            dexCacheFile.write((const char *) linkData->data, linkData->size);
             delete linkData;
         }
         LOGV("Update ref");
         for(DataSection* section:dataSection){
-            updateRef(fd,section);
+            updateRef(dexCacheFile, section);
         }
+        dexCacheFile.flush();
         LOGV("delete data");
         for(DataSection* section:dataSection){
             if(section->type!=typeClassDataItem)
@@ -778,35 +779,34 @@ static void writeHeadSection(const HeadSection head[7], int fd){
     }
 }
 
-//can be optimized by cache
-//no standard library allowed to avoid hook;
-static void writeDataSection(int fd,DataSection* section){
 
-	write(fd,fill, section->prePaddingSize);
+static void writeDataSection(DexCacheFile &dexCacheFile, DataSection *section) {
+
+    dexCacheFile.write(fill, section->prePaddingSize);
     if(section->type!=typeClassDataItem){
-        if(lseek(fd,0,SEEK_CUR)!=section->fileOffset&&section->fileOffset!= 0){
-            LOGW("Offset off type %s mismatch",getDexDataTypeName(section->type));
+        if (dexCacheFile.tell() != section->fileOffset && section->fileOffset != 0) {
+            LOGE("Offset off type %s mismatch", getDexDataTypeName(section->type));
         }
-        write(fd,section->src,section->size);
+        dexCacheFile.write(section->src, section->size);
     }
     else{
         ClassDataSection* classData= static_cast<ClassDataSection*>(section);
         u1 * ptr= (u1 *) section->src;int offset =0;
         for(int i=0;i<classData->codeRefSize;++i){
             ULebRef& ref=classData->codeRefs[i];
-            write(fd, ptr + offset, ref.offset - offset);
+            dexCacheFile.write(ptr + offset, ref.offset - offset);
             offset = ref.offset + ref.origSize;
-            ref.offset= (u4) (lseek(fd, ref.nowSize, SEEK_CUR) - ref.nowSize);
+            ref.offset = dexCacheFile.tell();
+            dexCacheFile.offset(ref.nowSize);
         }
-        write(fd, ptr + offset,classData->size-offset);
+        dexCacheFile.write(ptr + offset, classData->size - offset);
     }
-	write(fd,fill, section->postPaddingSize);
+    dexCacheFile.write(fill, section->postPaddingSize);
 }
 
-//no standard library allowed to avoid hook;
-static void updateRef(int fd,DataSection* section){
+static void updateRef(DexCacheFile &dexCacheFile, DataSection *section) {
     if(section->fileOffset== 0) return;
-    u4 offset;
+    u4 offsetData;
     switch (section->type){
         case typeMapList:
             return;//no need
@@ -814,20 +814,20 @@ static void updateRef(int fd,DataSection* section){
         case typeAnnotationSetRefList:
         case typeAnnotationItem:
         case typeDebugInfoItem:{
-            offset=section->parRef->fileOffset+section->parOffset;
-            pwrite(fd,&section->fileOffset,4,offset);
+            offsetData = section->parRef->fileOffset + section->parOffset;
+            dexCacheFile.pwrite(&section->fileOffset, 4, offsetData);
             break;
         }
         case typeCodeItem:{
             ClassDataSection* parent=(ClassDataSection*)section->parRef;
-            offset=parent->codeRefs[section->parIdx].offset;
-            writeUnsignedLeb128ToFile(fd,section->fileOffset,offset);
+            offsetData = parent->codeRefs[section->parIdx].offset;
+            writeUnsignedLeb128(dexCacheFile.getCache(offsetData), section->fileOffset);
             break;
         }
 
         default:{
-            offset= (u4) (section->parStart + section->parOffset);
-            pwrite(fd,&section->fileOffset,4,offset);
+            offsetData = (u4) (section->parStart + section->parOffset);
+            dexCacheFile.pwrite(&section->fileOffset, 4, offsetData);
             break;
         }
     }
@@ -853,9 +853,10 @@ static void putAnnoSetItem( std::vector<::DataSection *>& dataSection,DataSectio
         dataSection.push_back(section);
     }
 }
-static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int methodSize,
-                                   const jclass &thizClass, std::vector<::DataSection *> &dataSection,
-                                   const u1 *&ptr/*must keep this ref to be follow change*/,ClassDataSection* classData, u4 clsTypeIdx) {
+static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile* dexFile, int methodSize,
+                                  const jclass &thizClass, std::vector<::DataSection *> &dataSection,
+                                  const u1 *&ptr/*must keep this ref to be follow change*/,
+                                  ClassDataSection *classData) {
 
     if(methodSize<=0)
         return ;
@@ -899,11 +900,12 @@ static void fixMethodCodeIfNeeded(JNIEnv *env,const art::DexFile* dexFile,int me
                     u4 rCodeOff;//r=real or runtime
                     GET_ART_METHOD_MEMBER_VALUE(rCodeOff, dex_code_item_offset_, thisMethodId);
                     if (rCodeOff != codeOff) {
-                        LOGW("Mismatch codeoff f=%u,s=%u", codeOff, rCodeOff);
-                    }
-                    //LOGV("Running in art,instructed code off=%u",codeOff);
-                    if (rCodeOff != 0) {
-                        codeItem = reinterpret_cast<art::DexFile::CodeItem *>(begin + rCodeOff);
+                        LOGW("Mismatch codeOff class=%s method=%s old=%u,new=%u", dexGlobal.dexFile
+                                ->getStringFromTypeIndex(methodId.class_idx_), methodName, codeOff,
+                             rCodeOff);
+                        if (rCodeOff != 0) {//LOGV("Running in art,instructed code off=%u",codeOff);
+                            codeItem = reinterpret_cast<art::DexFile::CodeItem *>(begin + rCodeOff);
+                        }
                     }
                 }
             }
@@ -986,14 +988,14 @@ static bool putCodeItem(std::vector<::DataSection *>& dataSection,
         debugSect->size= (u4) (ptr - begin - debugOff);
         dataSection.push_back(debugSect);
     }
-    bool ret = fixOpCodeOrNot(codeItem);
+    bool ret = fixOpCodeOrNot(codeItem->insns_, codeItem->insns_size_in_code_units_, nullptr);
     return ret;
 }
 
-static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem) {
+bool fixOpCodeOrNot(u2 *insns, u4 insns_size, u4 *outPos) {
     u4 i;
-    for(i=0;i<codeItem->insns_size_in_code_units_;) {
-        u1 opCode = u1((codeItem->insns_[i]) & (u2) 0xff);
+    for (i = 0; i < insns_size;) {
+        u1 opCode = u1((insns[i]) & (u2) 0xff);
         if (!isDalvik()) {
             switch (opCode) {
                 case 0x73:
@@ -1019,6 +1021,7 @@ static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem) {
                 case 0xf7:
                 case 0xf8:
                 case 0xf9: {
+                    if (outPos != nullptr) *outPos = i;
                     return true;
                 }
                 default: {
@@ -1064,21 +1067,21 @@ static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem) {
             continue;
         }
         if (opCode == 0) {//nop or pseudo-code
-            u1 tag = u1(codeItem->insns_[i] >> 8);
+            u1 tag = u1(insns[i] >> 8);
             switch (tag) {
                 case PACKED_SWITCH: {
-                    u2 size = codeItem->insns_[i + 1];
+                    u2 size = insns[i + 1];
                     i += ((size * 2) + 4);
                     break;
                 }
                 case SPARSE_SWITCH: {
-                    u2 size = codeItem->insns_[i + 1];
+                    u2 size = insns[i + 1];
                     i += ((size * 4) + 2);
                     break;
                 }
                 case FILL_ARRAY_DATA: {
-                    u2 width = codeItem->insns_[i + 1];
-                    u4 size = *reinterpret_cast<u4 *>(&codeItem->insns_[i + 2]);
+                    u2 width = insns[i + 1];
+                    u4 size = *reinterpret_cast<u4 *>(&insns[i + 2]);
                     u4 tableSize = (size * width + 1) / 2 +
                                    4;//plus 1 in case width is odd,for even the plus is ignored
                     //required four byte alignment,but necessary?
@@ -1098,15 +1101,11 @@ static bool fixOpCodeOrNot(art::DexFile::CodeItem *codeItem) {
             }
         }
     }
-    if(i!=codeItem->insns_size_in_code_units_){
-        LOGE("Pos add wrong, check failed at class=%s",dexGlobal.curClass);
+    if (i != insns_size) {
+        LOGE("Pos add wrong, check failed ");
     }
-    //LOGV("Fix OpCode Over");
     return false;
 }
-
-
-
 static int skimDebugCode(const u1** pStream){
     using namespace art;
     const u1* ptr=*pStream;
