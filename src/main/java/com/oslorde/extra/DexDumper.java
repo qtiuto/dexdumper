@@ -326,7 +326,7 @@ public class DexDumper {
                 }
                 java.lang.Process logProcess = null;
                 try {
-                    logProcess = Runtime.getRuntime().exec("logcat -f " + sStorePath + '/' + "log.txt | grep DexDump");
+                    logProcess = Runtime.getRuntime().exec("logcat | grep -E 'DexDump|Fatal|dex_dump' >" + sStorePath + "/log.txt");
                 } catch (Exception ignored) {
                     Utils.log("Can't init logcat");
                 }

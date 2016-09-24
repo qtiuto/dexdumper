@@ -458,7 +458,7 @@ public:
         delete tryMap;
     }
 
-    static bool checkAndReplaceOpCodes(u2 *insns, u4 insns_size, u4 &outPos, u1 &outOp);
+    static bool checkAndReplaceOpCodes(u2 *insns, u4 insns_size);
     static void resetInlineTable();
 
     static u4 binarySearchType(const char *typeName, const art::DexFile *dexFile);

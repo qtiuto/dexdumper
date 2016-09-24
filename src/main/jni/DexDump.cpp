@@ -894,20 +894,23 @@ static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile *dexFile, int 
                     //LOGV("Running in dalvik,insns=%p",insns);
                     if(insns!= NULL){
                         //no so reliable as it seems that the insns size are unknown.
-                        memmove(codeItem->insns_,insns,codeItem->insns_size_in_code_units_*2U);
+                        dalvik::DexFile *rDexFile = reinterpret_cast<dalvik::Method *>(thisMethodId)->clazz->pDvmDex->pDexFile;
+                        if (rDexFile->baseAddr == dexFile->begin_)memmove(codeItem->insns_, insns,
+                                                                          codeItem->insns_size_in_code_units_ *
+                                                                          2U);
                     }
                 } else{
                     u4 declaring_class;
                     GET_ART_METHOD_MEMBER_VALUE(declaring_class, declaring_class_, thisMethodId)
                     art::DexFile *rDexFile = getRealDexFile(declaring_class);//r=real or runtime
-                    if (rDexFile != dexFile) {
+                    //if (rDexFile != dexFile) {
                         //TODO:And your own codes if you want to analyse the dexFile loaded by dynamic fix e.g. AndFix.default is
                         /*if(std::find(dex_files.begin(),dex_files.end(),rDexFile)!=dex_files.end()&&env->CallStaticBooleanMethod(dexGlobal.getToolsClass()
                                 ,env->GetStaticMethodID(dexGlobal.getToolsClass()
                                         ,"isSystemClass","(Ljava/lang/Class;)Z"),thizClass)){
                             dex_files.push_back(rDexFile);
                         };*/
-                    }
+                    //}
                     u4 rCodeOff;//r=real or runtime
                     GET_ART_METHOD_MEMBER_VALUE(rCodeOff, dex_code_item_offset_, thisMethodId);
                     if (rCodeOff != codeOff && rDexFile == dexFile) {

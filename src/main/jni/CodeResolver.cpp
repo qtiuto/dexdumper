@@ -2,6 +2,7 @@
 // Created by asus on 2016/8/16.
 //
 #include "CodeResolver.h"
+#include "dalvik/InlineTable.h"
 
 extern bool fixOpCodeOrNot(u2 *insns, u4 insns_szie);
 const JNINativeMethod getMethods[] = {
@@ -9,62 +10,6 @@ const JNINativeMethod getMethods[] = {
         {"getMethodVIdx",  "(Ljava/lang/reflect/Method;)I",      (void *) getMethodVIdx},
         {"getSuperIdx",    "(Ljava/lang/reflect/Constructor;)I", (void *) getMethodVIdx}
 };
-struct InlineMethod {
-    const char *classDescriptor;
-    const char *methodName;
-    const char *retType;
-    const char *parSig;
-    u4 methodIdx;
-} InlineOpsTable[] = {
-        {"Lorg/apache/harmony/dalvik/NativeTestTarget;", "emptyInlineMethod",   "V", ""},
-        {"Ljava/lang/String;",                           "charAt",              "C", "I"},
-        {"Ljava/lang/String;",                           "compareTo",           "I", "Ljava/lang/String;"},
-        {"Ljava/lang/String;",                           "equals",              "Z", "Ljava/lang/Object;"},
-        {"Ljava/lang/String;",                           "fastIndexOf",         "I", "II"},
-        {"Ljava/lang/String;",                           "isEmpty",             "Z", ""},
-        {"Ljava/lang/String;",                           "length",              "I", ""},
-
-        {"Ljava/lang/Math;",                             "abs",                 "I", "I"},
-        {"Ljava/lang/Math;",                             "abs",                 "J", "J"},
-        {"Ljava/lang/Math;",                             "abs",                 "F", "F"},
-        {"Ljava/lang/Math;",                             "abs",                 "D", "D"},
-        {"Ljava/lang/Math;",                             "min",                 "I", "II"},
-        {"Ljava/lang/Math;",                             "max",                 "I", "II"},
-        {"Ljava/lang/Math;",                             "sqrt",                "D", "D"},
-        {"Ljava/lang/Math;",                             "cos",                 "D", "D"},
-        {"Ljava/lang/Math;",                             "sin",                 "D", "D"},
-
-        {"Ljava/lang/Float;",                            "floatToIntBits",      "I", "F"},
-        {"Ljava/lang/Float;",                            "floatToRawIntBits",   "I", "F"},
-        {"Ljava/lang/Float;",                            "intBitsToFloat",      "F", "I"},
-
-        {"Ljava/lang/Double;",                           "doubleToLongBits",    "J", "D"},
-        {"Ljava/lang/Double;",                           "doubleToRawLongBits", "J", "D"},
-        {"Ljava/lang/Double;",                           "longBitsToDouble",    "D", "J"},
-
-        // These are implemented exactly the same in Math and StrictMath,
-        // so we can make the StrictMath calls fast too. Note that this
-        // isn't true in general!
-        {"Ljava/lang/StrictMath;",                       "abs",                 "I", "I"},
-        {"Ljava/lang/StrictMath;",                       "abs",                 "J", "J"},
-        {"Ljava/lang/StrictMath;",                       "abs",                 "F", "F"},
-        {"Ljava/lang/StrictMath;",                       "abs",                 "D", "D"},
-        {"Ljava/lang/StrictMath;",                       "min",                 "I", "II"},
-        {"Ljava/lang/StrictMath;",                       "max",                 "I", "II"},
-        {"Ljava/lang/StrictMath;",                       "sqrt",                "D", "D"},
-
-};
-enum {
-    InlineOpsTableSize = 29, //anti editor bug
-    InlineVirtualStart = 1,
-    InlineVirtualEnd = 6
-};
-
-void CodeResolver::resetInlineTable() {
-    for (int i = 0; i < InlineOpsTableSize; ++i) {
-        InlineOpsTable[i].methodIdx = CodeResolver::UNDEFINED;
-    }
-}
 extern JavaVM* javaVM;
 static thread_local bool isLog;
 static thread_local JNIEnv* env;
@@ -142,11 +87,11 @@ void* CodeResolver::runResolver(void *args) {
         throw "Polluted method pointer";
     }
     const char *methodName=dexGlobal.dexFile->getStringByStringIndex(resolver->methodId->name_idx_);
-    /* if(equals("Lb/a;",clsName)&&equals(methodName,"<clinit>")){
+    char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
+    /*if(equals("Lb/a;",clsName)&&equals(methodName,"<clinit>")){
          isLog= true;
      }*/
     ::isLog = isLog;
-    char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
     //LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s",
     // resolver->methodId->class_idx_, clsName, methodName, sig);
     delete [] sig;
@@ -808,9 +753,9 @@ void* CodeResolver::runResolver(void *args) {
                     break;
                 }
                 case agetOb:{
-                    ins= (u1 *) &insns[pos + 1];
-                    resolver->checkRegRange(*ins);
-                    u4 arrayType=curNode->registerTypes[*ins];
+                    u1 typeReg = (u1) (insns[pos + 1] & 0xff);
+                    resolver->checkRegRange(typeReg);
+                    u4 arrayType = curNode->registerTypes[typeReg];
                     if (arrayType == TypePrimitive) {
                         isNpeReturn = true;
                         goto Next;
@@ -976,7 +921,7 @@ void* CodeResolver::runResolver(void *args) {
                 }
             }
             JudgeTry:
-            TryItem* tryItem;
+            TryItem *tryItem;
             if (resolver->tryMap != nullptr &&
                 (tryItem = resolver->tryMap->seekTry(pos)) != nullptr) {
                 if(isLog){
@@ -1020,10 +965,10 @@ void* CodeResolver::runResolver(void *args) {
     //actually these codes can run without fix at all as they must throw a NullPointerException when reach.
     //But as they may cause dex2smali tools to throw an exception, so some fixes is required.
     //For more informations, see below.
-    if (checkAndReplaceOpCodes(insns, code->insns_size_in_code_units_, pos, opCode)) {
-        LOGE("Code Fix not over yet with unfixed opCode %x at pos=%u in class %s in pos=%u ;m=%s;sig=%s;",
-             opCode, pos, clsName, searchClassPos(clsName), methodName,
-             getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile));
+    if (checkAndReplaceOpCodes(insns, code->insns_size_in_code_units_)) {
+        LOGE("Code Fix not over yet in class %s in pos=%u ;m=%s;sig=%s;", clsName,
+             searchClassPos(clsName),
+             methodName, getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile));
         lastRange->printRange();
     }
     delete curNode;
@@ -1036,10 +981,10 @@ void* CodeResolver::runResolver(void *args) {
     return nullptr;
 }
 
-bool CodeResolver::checkAndReplaceOpCodes(u2 *insns, u4 insns_size, u4 &outPos, u1 &outOp) {
-    u4 i;
+bool CodeResolver::checkAndReplaceOpCodes(u2 *insns, u4 insns_size) {
+    u4 i, opCount;
     bool ret = false;
-    for (i = 0; i < insns_size;) {
+    for (i = opCount = 0; i < insns_size; ++opCount) {
         u1 *opPtr = (u1 *) (insns + i);
         u1 opCode = *opPtr;
         switch (opCode) {
@@ -1054,8 +999,10 @@ bool CodeResolver::checkAndReplaceOpCodes(u2 *insns, u4 insns_size, u4 &outPos, 
                 //Yeah! I can replace them by codes, but I give up finally as it's pretty troublesome
                 // and less efficient to find a appropriate method that match the regCount;
 #define SIMPLE_REPLACE(opCode, offset)\
-                case opCode##Q: if(!ret){outPos=i;outOp=opCode##Q;ret=true;if(isDalvik()){return true;}}*opPtr=opCode; i+=offset; \
-                                    LOGE("Unresolved OpCode replaced from "#opCode"Q to "#opCode" with index");
+                case opCode##Q: if(!ret){ret=true;if(isDalvik()){return true;}}*opPtr=opCode; \
+                                    LOGE("Unresolved OpCode replaced from "#opCode"Q 0x%x to "#opCode\
+                                    " 0x%x with index=%u at the #%u instruction at pos=%u",opCode##Q,opCode,insns[i+1],opCount,i);\
+                                    i+=offset;
 
 #define SIMPLE_REPLACE_FIELD(opCode) SIMPLE_REPLACE(opCode,2)\
                     continue;
@@ -1392,6 +1339,7 @@ void CodeResolver::initRegisters(u4* registers) {
                 case '\0':
                     LOGE("Unexpected type zero in paraList");
                     continue;
+                case '[':
                 case 'L':
                     ++paraSize;
                     checkRegRange(codeItem->registers_size_ - paraSize);

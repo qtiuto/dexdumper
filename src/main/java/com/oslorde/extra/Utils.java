@@ -4,35 +4,32 @@ import android.util.Log;
 
 import java.io.File;
 
-/**
- * Created by asus on 2016/9/14.
- */
 public class Utils {
     public static void log(String message) {
-        Log.d("I/DexDumper", message);
+        Log.d("Oslorde:DexDump", message);
     }
 
     public static void log(Object message) {
         log(String.valueOf(message));
     }
 
-    public static void logW(String message) {
-        Log.w("W/DexDumper", message);
+    static void logW(String message) {
+        Log.w("Oslorde:DexDump", message);
     }
 
-    public static void logE(String message) {
-        Log.e("E/DexDumper", message);
+    static void logE(String message) {
+        Log.e("Oslorde:DexDump", message);
     }
 
     public static void log(Throwable e) {
-        Log.e("E/DexDumper", Log.getStackTraceString(e));
+        Log.e("Oslorde:DexDump", Log.getStackTraceString(e));
     }
 
     public static void log(String msg, Throwable e) {
-        Log.e("E/DexDumper", msg + ',' + Log.getStackTraceString(e));
+        Log.e("Oslorde:DexDump", msg + ',' + Log.getStackTraceString(e));
     }
 
-    public static boolean rDelete(File file) {
+    static boolean rDelete(File file) {
         boolean b;
         if (file.isFile())
             b = file.delete();
