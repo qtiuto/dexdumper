@@ -6,7 +6,7 @@ import java.io.File;
 
 public class Utils {
     public static void log(String message) {
-        Log.d("Oslorde:DexDump", message);
+        Log.d("Oslorde_DexDump", message);
     }
 
     public static void log(Object message) {
@@ -14,19 +14,19 @@ public class Utils {
     }
 
     static void logW(String message) {
-        Log.w("Oslorde:DexDump", message);
+        Log.w("Oslorde_DexDump", message);
     }
 
     static void logE(String message) {
-        Log.e("Oslorde:DexDump", message);
+        Log.e("Oslorde_DexDump", message);
     }
 
     public static void log(Throwable e) {
-        Log.e("Oslorde:DexDump", Log.getStackTraceString(e));
+        Log.e("Oslorde_DexDump", Log.getStackTraceString(e));
     }
 
     public static void log(String msg, Throwable e) {
-        Log.e("Oslorde:DexDump", msg + ',' + Log.getStackTraceString(e));
+        Log.e("Oslorde_DexDump", msg + ',' + Log.getStackTraceString(e));
     }
 
     static boolean rDelete(File file) {

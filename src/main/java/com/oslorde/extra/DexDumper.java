@@ -36,7 +36,6 @@ public class DexDumper {
     private static final String ABI_ARM64_MIRROR="arm64-v8a";
 
     private static final int DEX_FILE_START;
-    public static boolean isDalvik = !isArtInUse();
     private static String sStorePath=Environment.getExternalStorageDirectory().getPath()+"/DexDump";
 
     static {
@@ -140,8 +139,6 @@ public class DexDumper {
         }
         if(resetStorePath(storePath)){
             sStorePath=storePath;
-            if(mode>=0)setMode(mode);
-            else setMode(DumpMode.MODE_LOOSE);
             try {
                 return dumpDexImpl(loader, mode);
             } catch (Exception e) {
@@ -221,6 +218,14 @@ public class DexDumper {
     private static boolean dumpDexImpl(ClassLoader loader, int mode) throws Exception {
         int sdkVer= Build.VERSION.SDK_INT;
         ClassTools.init(loader);
+        setMode(mode);
+        java.lang.Process logP = null;
+        try {
+            Runtime.getRuntime().exec("logcat -c");
+            logP = Runtime.getRuntime().exec("logcat -f " + sStorePath + "/log.txt -s Oslorde_DexDump");
+        } catch (Exception e) {
+            Utils.log("Logcat Failed");
+        }
         IdentityHashMap<ClassLoader, Object> loaders = new IdentityHashMap<>();
         Out:
         do{
@@ -324,12 +329,7 @@ public class DexDumper {
                 } catch (Exception e) {
                     throw new DexDumpException("Error occured when writing dexName into DexInfo.txt", e);
                 }
-                java.lang.Process logProcess = null;
-                try {
-                    logProcess = Runtime.getRuntime().exec("logcat | grep -E 'DexDump|Fatal|dex_dump' >" + sStorePath + "/log.txt");
-                } catch (Exception ignored) {
-                    Utils.log("Can't init logcat");
-                }
+
                 if (isArray(mCookie)) {
                     int N = Array.getLength(mCookie);
                     Utils.log("Cookie Length:" + N);
@@ -355,16 +355,16 @@ public class DexDumper {
                         dumpDexV16(((Number) mCookie).longValue(), dexDir);
                     }
                 }
-                if (logProcess != null) {
-                    logProcess.destroy();
-                }
+
             }
 
             //reverse order, but no other influence.
             loader=loader.getParent();
         } while (!loaders.containsKey(loader));
         ClassTools.clear();
-
+        if (logP != null) {
+            logP.destroy();
+        }
         return true;
     }
     //faster than getClass().isArray()
