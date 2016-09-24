@@ -1,6 +1,3 @@
-//
-// Created by asus on 2016/8/8.
-//
 
 #ifndef HOOKMANAGER_ART_METHOD_H
 #define HOOKMANAGER_ART_METHOD_H

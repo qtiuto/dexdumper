@@ -388,7 +388,7 @@ public final class ClassTools {
         }
     }
 
-    boolean isSystemClass(Class cls) {
+    private static boolean isSystemClass(Class cls) {
         return cls.getClassLoader() == systemClassLoader;
     }
 
