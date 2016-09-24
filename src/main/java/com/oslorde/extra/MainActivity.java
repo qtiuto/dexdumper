@@ -16,7 +16,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        String packageName = "com.alensw.PicFolder";//for test only
+        String packageName = "com.mxtech.videoplayer.pro";//for test only
         try {
             ApplicationInfo info=getPackageManager().getApplicationInfo(packageName,0);
             DexLoader.install(info.sourceDir, getPackageName(), packageName);
@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
                 try {
                     DexDumper.dumpDex((BaseDexClassLoader) getClassLoader(),
                             getDir("test_dex",MODE_PRIVATE).getPath(),null,
-                            new File(getFilesDir(),"libs"),null,DumpMode.MODE_LOOSE);
+                            new File(getFilesDir(), "libs"), null, DumpMode.MODE_FIX_CODE);
                 }catch (Throwable e){
                     Utils.log(e);
                 }

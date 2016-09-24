@@ -19,6 +19,7 @@ import java.util.WeakHashMap;
 public final class ClassTools {
     private static ByteOut byteOut;
     private static ClassLoader loader;
+    private static ClassLoader systemClassLoader;
     private static Map<String, SparseArray<Field>> cachedFTables;
     private static Map<String, SparseArray<Method>> cachedVTables;
 
@@ -31,10 +32,10 @@ public final class ClassTools {
 
     static void init(ClassLoader loader) {
         ClassTools.loader = loader;
+        systemClassLoader = String.class.getClassLoader();
         byteOut = new ByteOut();
         cachedFTables = new WeakHashMap<>(32);
         cachedVTables = new WeakHashMap<>(32);
-
     }
 
     static void clear() {
@@ -146,7 +147,6 @@ public final class ClassTools {
         }
     }
 
-
     //java is utf16 encoding
     public static void writeMUtf8(String src, ByteOut out) {
         int len = src.length();
@@ -190,6 +190,7 @@ public final class ClassTools {
         }
         return null;
     }
+
     private static SparseArray<Field> getAllInstanceFields(Class cls){
         ArrayList<Field> list = getAllInstanceFieldsNotCall(cls, null, false);
         SparseArray<Field> fieldOffsetArr=new SparseArray<>();
@@ -217,6 +218,7 @@ public final class ClassTools {
         }
         return list;
     }
+
     private static SparseArray<Method> getAllVMethods(Class cls){
         if (cls.isArray() || cls.isInterface()) cls = Object.class;
         ArrayList<Method> list = getAllVMethodsNotCall(cls, null);
@@ -252,10 +254,12 @@ public final class ClassTools {
 
         return list;
     }
+
     @Deprecated
     private static ArrayList<Method> getAllVirtualMethods(Class cls){
         return getAllVirtualMethods(cls,null,null);
     }
+
     @Deprecated
     private static ArrayList<Method> getAllVirtualMethods(Class cls, ArrayList<Method> list,List<Class> ifTable){
         if(list==null) list=new ArrayList<>();
@@ -345,11 +349,13 @@ public final class ClassTools {
         }
         return list;
     }
+
     public static String getPackageName(Class cls) {
         String name = cls.getName();
         int last = name.lastIndexOf('.');
         return last == -1 ? "" : name.substring(0, last);
     }
+
     private static <T> int indexOf(ArrayList<T> list,T member,Weigher<T> weigher){
         for(int i=0,N=list.size();i<N;++i){
             if(weigher.isTheSameWeight(member,list.get(i))){
@@ -380,6 +386,10 @@ public final class ClassTools {
             writeMUtf8(type.getName().replace('.', '/'), out);
             out.write(';');
         }
+    }
+
+    boolean isSystemClass(Class cls) {
+        return cls.getClassLoader() == systemClassLoader;
     }
 
     private interface Weigher<T> {

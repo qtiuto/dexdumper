@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include "jni.h"
 #include "art-member.h"
-#include "Commons.h"
+#include "DexCommons.h"
 #include "dalvik/Object.h"
 #include "dex_file.h"
 
@@ -23,6 +23,8 @@ jint  getMethodVIdx(JNIEnv *env,jclass thisClass,jobject method);
 #ifdef __cplusplus
 }
 
+art::DexFile *getRealDexFile(u4 declaring_class);
+
 #define GET_ART_METHOD_MEMBER_VALUE(var_out,mem_name, method_id)\
  if(isKitkatArt()){\
 ArtMethodKitkat* artMethod= reinterpret_cast<ArtMethodKitkat*>(reinterpret_cast<u1*>(method_id));\
@@ -30,12 +32,15 @@ var_out= artMethod->mem_name;\
 } else if(isArtL()){\
 ArtMethodLollipop* artMethod= reinterpret_cast<ArtMethodLollipop*>(reinterpret_cast<u1*>(method_id));\
 var_out=  artMethod->mem_name;\
+} else if(isArtLMr1()){\
+ArtMethodLollipopMr1* artMethod= reinterpret_cast<ArtMethodLollipopMr1*>(reinterpret_cast<u1*>(method_id));\
+var_out=  artMethod->mem_name;\
 } else if(isArtNougat()){\
 ArtMethodNougat* artMethod=reinterpret_cast<ArtMethodNougat*>(reinterpret_cast<u1*>(method_id));\
 var_out=  artMethod->mem_name;\
 }\
 else{\
-ArtMethod* artMethod= reinterpret_cast<ArtMethod*>(reinterpret_cast<u1*>(method_id));\
+ArtMethodMarshmallow* artMethod= reinterpret_cast<ArtMethodMarshmallow*>(reinterpret_cast<u1*>(method_id));\
 var_out=  artMethod->mem_name;\
 }
 

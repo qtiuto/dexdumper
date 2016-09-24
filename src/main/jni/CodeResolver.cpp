@@ -3,7 +3,7 @@
 //
 #include "CodeResolver.h"
 
-extern bool fixOpCodeOrNot(u2 *insns, u4 insns_szie, u4 *outPos);
+extern bool fixOpCodeOrNot(u2 *insns, u4 insns_szie);
 const JNINativeMethod getMethods[] = {
         {"getFieldOffset", "(Ljava/lang/reflect/Field;)I",       (void*)getFieldOffset},
         {"getMethodVIdx",  "(Ljava/lang/reflect/Method;)I",      (void *) getMethodVIdx},
@@ -91,7 +91,11 @@ jint getFieldOffset(JNIEnv *env, jclass thisClass, jobject field) {
     if(isKitkatArt()){
         ArtFieldKitkat* artFieldKitkat= reinterpret_cast<ArtFieldKitkat*>(reinterpret_cast<u1*>(fieldID));
         return artFieldKitkat->offset_;
-    } else{
+    } else if (isArtL() || isArtLMr1()) {
+        ArtFieldLollipop *artField = reinterpret_cast<ArtFieldLollipop *>(reinterpret_cast<u1 *>(fieldID));
+        return artField->offset_;
+    }
+    else {
         ArtField* artField= reinterpret_cast<ArtField*>(reinterpret_cast<u1*>(fieldID));
         return artField->offset_;
     }// optimized field are u2 only
@@ -105,6 +109,16 @@ jint  getMethodVIdx(JNIEnv *env,jclass thisClass,jobject method){
     u4 index;
     GET_ART_METHOD_MEMBER_VALUE(index,method_index_,methodID);
     return index;
+}
+
+art::DexFile *getRealDexFile(u4 declaring_class) {
+    assert(!isDalvik());
+    u4 dexCachePtr = reinterpret_cast<ArtClass *>(declaring_class)->getDexCache(isArtNougat());
+    if (isArtNougat()) {
+        return (art::DexFile *) reinterpret_cast<NougatDexCache *>(dexCachePtr)->dex_file_;
+    } else if (isKitkatArt()) {
+        return (art::DexFile *) reinterpret_cast<KitkatDexCache *>(dexCachePtr)->dex_file_;
+    } else return (art::DexFile *) reinterpret_cast<DexCache *>(dexCachePtr)->dex_file_;
 }
 void CodeResolver::threadInit() {
     javaVM->AttachCurrentThread(&env, nullptr);
@@ -1041,7 +1055,7 @@ bool CodeResolver::checkAndReplaceOpCodes(u2 *insns, u4 insns_size, u4 &outPos, 
                 // and less efficient to find a appropriate method that match the regCount;
 #define SIMPLE_REPLACE(opCode, offset)\
                 case opCode##Q: if(!ret){outPos=i;outOp=opCode##Q;ret=true;if(isDalvik()){return true;}}*opPtr=opCode; i+=offset; \
-                                    LOGE("Unresolved OpCode replaced from"#opCode"Q to"#opCode);
+                                    LOGE("Unresolved OpCode replaced from "#opCode"Q to "#opCode" with index");
 
 #define SIMPLE_REPLACE_FIELD(opCode) SIMPLE_REPLACE(opCode,2)\
                     continue;

@@ -1,4 +1,4 @@
-APP_ABI := mips
+APP_ABI := arm64-v8a
 APP_PLATFORM := android-21
 NDK_TOOLCHAIN_VERSION := clang
 APP_CPPFLAGS := -fexceptions -frtti #允许异常功能，及运行时类型识别

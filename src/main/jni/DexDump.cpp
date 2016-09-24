@@ -8,7 +8,6 @@ const char fill[] ="\0\0\0\0\0\0\0\0";
 DexGlobal dexGlobal;
 JavaVM *javaVM;
 
-
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved){
     JNIEnv* env;
     if(vm->GetEnv((void**)&env,JNI_VERSION_1_4)!=JNI_OK){
@@ -411,11 +410,11 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
                 ptr=beginPtr+methodBeginSize;
 
 
-                fixMethodCodeIfNeeded(env, dex, directMethodSize, thizClass,
-                                      dataSection, ptr, section);
+                fixMethodCodeIfNeeded(env, dex, directMethodSize, thizClass, dataSection, ptr,
+                                      section, dex_files);
 
-                fixMethodCodeIfNeeded(env, dex, virtualMethodSize, thizClass,
-                                      dataSection, ptr, section);
+                fixMethodCodeIfNeeded(env, dex, virtualMethodSize, thizClass, dataSection, ptr,
+                                      section, dex_files);
             }
             if(clsDefItem.static_values_off_ != 0){
                 //LOGV("Static values off,%u",clsDefItem.static_values_off_);
@@ -446,7 +445,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         LOGV("Start writing,data_off=%u,data_size=%u,file size=%u",header.data_off_,header.data_size_,fileSize);
 
         dexCacheFile.seek(header.data_off_);
-        LOGV("Start write data Section pos=%ld", dexCacheFile.tell());
+        LOGV("Start write data Section pos=%u", dexCacheFile.tell());
 		for (DataSection* section : dataSection) {
             writeDataSection(dexCacheFile, section);
 		}
@@ -667,7 +666,6 @@ static void fixDataSection(std::vector<::DataSection *> &dataSection, art::DexFi
                     section->fileOffset=data_off+size;
                 else states[index].isFirst= true;
                 size+=section->size;
-
                 break;
             }
             case typeAnnotationItem:{
@@ -853,10 +851,12 @@ static void putAnnoSetItem( std::vector<::DataSection *>& dataSection,DataSectio
         dataSection.push_back(section);
     }
 }
-static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile* dexFile, int methodSize,
-                                  const jclass &thizClass, std::vector<::DataSection *> &dataSection,
-                                  const u1 *&ptr/*must keep this ref to be follow change*/,
-                                  ClassDataSection *classData) {
+
+static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile *dexFile, int methodSize,
+                                  const jclass &thizClass,
+                                  std::vector<::DataSection *> &dataSection, const u1 *&ptr,
+                                  ClassDataSection *classData,
+                                  std::vector<const art::DexFile *> &dex_files) {
 
     if(methodSize<=0)
         return ;
@@ -897,11 +897,24 @@ static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile* dexFile, int 
                         memmove(codeItem->insns_,insns,codeItem->insns_size_in_code_units_*2U);
                     }
                 } else{
+                    u4 declaring_class;
+                    GET_ART_METHOD_MEMBER_VALUE(declaring_class, declaring_class_, thisMethodId)
+                    art::DexFile *rDexFile = getRealDexFile(declaring_class);//r=real or runtime
+                    if (rDexFile != dexFile) {
+                        //TODO:And your own codes if you want to analyse the dexFile loaded by dynamic fix e.g. AndFix.default is
+                        /*if(std::find(dex_files.begin(),dex_files.end(),rDexFile)!=dex_files.end()&&env->CallStaticBooleanMethod(dexGlobal.getToolsClass()
+                                ,env->GetStaticMethodID(dexGlobal.getToolsClass()
+                                        ,"isSystemClass","(Ljava/lang/Class;)Z"),thizClass)){
+                            dex_files.push_back(rDexFile);
+                        };*/
+                    }
                     u4 rCodeOff;//r=real or runtime
                     GET_ART_METHOD_MEMBER_VALUE(rCodeOff, dex_code_item_offset_, thisMethodId);
-                    if (rCodeOff != codeOff) {
-                        LOGW("Mismatch codeOff class=%s method=%s old=%u,new=%u", dexGlobal.dexFile
-                                ->getStringFromTypeIndex(methodId.class_idx_), methodName, codeOff,
+                    if (rCodeOff != codeOff && rDexFile == dexFile) {
+                        const char *className = dexFile->getStringFromTypeIndex(
+                                methodId.class_idx_);
+                        LOGW("Mismatch codeOff class=%s method=%s old=%u,new=%u", className,
+                             methodName, codeOff,
                              rCodeOff);
                         if (rCodeOff != 0) {//LOGV("Running in art,instructed code off=%u",codeOff);
                             codeItem = reinterpret_cast<art::DexFile::CodeItem *>(begin + rCodeOff);
@@ -934,6 +947,7 @@ static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile* dexFile, int 
         ptr+=size;//keep this here for ref use;
     }
 }
+
 
 static bool putCodeItem(std::vector<::DataSection *>& dataSection,
                art::DexFile::CodeItem* codeItem,CodeItemSect* section, u1* begin) {
@@ -988,11 +1002,10 @@ static bool putCodeItem(std::vector<::DataSection *>& dataSection,
         debugSect->size= (u4) (ptr - begin - debugOff);
         dataSection.push_back(debugSect);
     }
-    bool ret = fixOpCodeOrNot(codeItem->insns_, codeItem->insns_size_in_code_units_, nullptr);
-    return ret;
+    return fixOpCodeOrNot(codeItem->insns_, codeItem->insns_size_in_code_units_);
 }
 
-bool fixOpCodeOrNot(u2 *insns, u4 insns_size, u4 *outPos) {
+bool fixOpCodeOrNot(u2 *insns, u4 insns_size) {
     u4 i;
     for (i = 0; i < insns_size;) {
         u1 opCode = u1((insns[i]) & (u2) 0xff);
@@ -1021,7 +1034,6 @@ bool fixOpCodeOrNot(u2 *insns, u4 insns_size, u4 *outPos) {
                 case 0xf7:
                 case 0xf8:
                 case 0xf9: {
-                    if (outPos != nullptr) *outPos = i;
                     return true;
                 }
                 default: {

@@ -129,6 +129,14 @@ inline bool isKitkatArt(){
 inline bool isArtL(){
     return dexGlobal.sdkOpt==ART_LOLLIPOP;
 }
+
+inline bool isArtLMr1() {
+    return dexGlobal.sdkOpt == ART_LOLLIPOP_MR1;
+}
+
+inline bool isArtM() {
+    return dexGlobal.sdkOpt == ART_MARSHMALLOW;
+};
 inline bool isArtNougat(){
     return dexGlobal.sdkOpt==ART_NOUGAT;
 }

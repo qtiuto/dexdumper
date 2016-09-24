@@ -11,7 +11,7 @@
 #include "dalvik/Object.h"
 #include "checksum.h"
 #include "art-member.h"
-#include "Commons.h"
+#include "DexCommons.h"
 #include "CodeResolver.h"
 #include "DexCacheFile.h"
 
@@ -165,15 +165,17 @@ static void fixMapListHeaderPart(const art::DexFile::Header *header, const HeadS
 static void changeItemState(ItemState itemStates[],int index,DataSection *section,u4& size,u4 data_off,u2 type, bool requiredPadding);
 
 
-static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile* dexFile, int methodSize, const jclass &thizClass,
+static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile *dexFile, int methodSize,
+                                  const jclass &thizClass,
                                   std::vector<::DataSection *> &dataSection, const u1 *&ptr,
-                                  ClassDataSection *classData);
+                                  ClassDataSection *classData,
+                                  std::vector<const art::DexFile *> &dex_files);
 
 static void putAnnoSetItem( std::vector<::DataSection *>& dataSection,DataSection* par,
                             u4 parOffset,const art::DexFile::AnnotationSetItem* setItem, u1* begin) ;
 
 static bool judgeVersion(const unsigned char* str);
 
-bool fixOpCodeOrNot(u2 *insns, u4 insns_szie, u4 *outPos);
+bool fixOpCodeOrNot(u2 *insns, u4 insns_szie);
 #endif
 #endif
