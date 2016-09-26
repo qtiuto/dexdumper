@@ -900,7 +900,7 @@ static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile *dexFile, int 
                     dalvik::Method* meth=(dalvik::Method*)thisMethodId;
                     const u2* insns=meth->insns;
                     ///LOGV("Running in dalvik,insns=%p",insns);
-                    if(insns!= NULL){
+                    if (insns != NULL && insns != codeItem->insns_) {
                         //no so reliable as it seems that the insns size are unknown.
                         dalvik::ClassObject *classObject = reinterpret_cast<dalvik::Method *>(thisMethodId)->clazz;
                         dalvik::DexFile *rDexFile = classObject->pDvmDex->pDexFile;
