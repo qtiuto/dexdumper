@@ -88,9 +88,10 @@ void* CodeResolver::runResolver(void *args) {
     }
     const char *methodName=dexGlobal.dexFile->getStringByStringIndex(resolver->methodId->name_idx_);
     char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
-    /*if(equals("Lb/a;",clsName)&&equals(methodName,"<clinit>")){
+    if (equals("Lcom/oslorde/extra/DexDumper;", clsName) &&
+        equals(methodName, "getFirstSupportedAbi")) {
          isLog= true;
-     }*/
+    }
     ::isLog = isLog;
     //LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s",
     // resolver->methodId->class_idx_, clsName, methodName, sig);
@@ -413,9 +414,16 @@ void* CodeResolver::runResolver(void *args) {
                     case OP_BREAKPOINT: {
                         throw std::runtime_error("OP_BREAKPOINT shouldn't occurr in normal code");
                     }
-                    case OP_THROW_VERIFICATION_ERROR:
+                    case OP_THROW_VERIFICATION_ERROR: {
+                        char *sigature = getProtoSig(resolver->methodId->proto_idx_,
+                                                     dexGlobal.dexFile);
+                        LOGW("This app uses api higher than current in method=%s%s in class %s. Maybe you should run it on "
+                                     "higher veision of system, but rest assured,it will go well on your system!",
+                             methodName, sigature, clsName);
+                        delete sigature;
                         isNpeReturn = true;
                         goto Next;
+                    }
                     case OP_EXECUTE_INLINE: {
                         {
                             u1 iReg = u1(insns[pos + 2] & 0xf);

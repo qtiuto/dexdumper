@@ -5,14 +5,10 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <dirent.h>
 #include "jni.h"
 #include "dex_file.h"
-#include "dalvik/Object.h"
-#include "checksum.h"
 #include "art-member.h"
 #include "DexCommons.h"
-#include "CodeResolver.h"
 #include "DexCacheFile.h"
 
 #ifndef _Included_com_oslorde_extra_DexDumper

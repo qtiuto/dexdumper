@@ -56,6 +56,7 @@ struct __attribute__ ((packed)) ClassDataSection:public DataSection{
 };
 struct __attribute__ ((packed)) CodeItemSect:public DataSection{
     u4* fileOffsetRef= nullptr;
+    bool isValidDebugOff = true;
     void updateFileOffset(u4 fileOff){
         if(fileOffsetRef!= nullptr)
             *fileOffsetRef=fileOff+offsetof(art::DexFile::CodeItem,insns_);

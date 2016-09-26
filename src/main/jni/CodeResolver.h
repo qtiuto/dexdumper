@@ -380,7 +380,7 @@ private:
                 isMapped = true;
                 div = end - start;
                 u4 tmpDiv;
-                for(int i=0;i<size-2;++i){
+                for (int i = 0; i < size - 1; ++i) {
                     tmpDiv=tries[i+1].pos-tries[i].pos;
                     if (tmpDiv < div) div = tmpDiv;
                 }

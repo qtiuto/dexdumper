@@ -95,9 +95,12 @@ public class DexDumper {
             try {
                 ApplicationInfo info=application.getApplicationInfo();
                 String abi=info.nativeLibraryDir;
-                if (info.dataDir.equals(abi) || abi.endsWith("lib") || TextUtils.isEmpty(abi)) {
+                Utils.log("Abi=" + abi);
+                Utils.log(info.packageName);
+                if (info.dataDir.equals(abi) || TextUtils.isEmpty(abi) || abi.endsWith("lib") || new File(abi).getName().startsWith(info.packageName)) {
                     abi=getFirstSupportedAbi();
                 }else {
+                    Utils.log("Into abi judge abi=" + abi);
                     abi=abi.substring(abi.lastIndexOf('/')+1);
                     switch (abi){
                         case ABI_ARM:
@@ -111,6 +114,7 @@ public class DexDumper {
                 }
                 Context context=application.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_RESTRICTED);
                 sourceApk=context.getApplicationInfo().sourceDir;
+                Utils.log("Src=" + sourceApk);
                 ZipFile zipFile=new ZipFile(sourceApk);
                 Utils.log("Dexdump:loadingLib="+abi+"/libdex_dump.so");
                 ZipEntry entry=zipFile.getEntry("lib/"+abi+"/libdex_dump.so");
@@ -363,6 +367,7 @@ public class DexDumper {
         } while (!loaders.containsKey(loader));
         ClassTools.clear();
         if (logP != null) {
+            logP.getOutputStream().write("^C".getBytes());
             logP.destroy();
         }
         return true;

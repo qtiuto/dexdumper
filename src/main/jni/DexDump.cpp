@@ -3,7 +3,11 @@
 //
 
 #include "DexDump.h"
-
+#include "checksum.h"
+#include <dirent.h>
+#include "dalvik/Object.h"
+#include "CodeResolver.h"
+#include "PtrVerify.h"
 const char fill[] ="\0\0\0\0\0\0\0\0";
 DexGlobal dexGlobal;
 JavaVM *javaVM;
@@ -33,7 +37,7 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV16(JNIEnv *env,
     if(pDexOrJar->isDex){
         pDvmDex=pDexOrJar->pRawDexFile->pDvmDex;
     } else pDvmDex=pDexOrJar->pJarFile->pDvmDex;
-    LOGV("Dex1=%p,Dex2=%p", pDvmDex->pDexFile, pDvmDex->pHeader);
+    LOGV("Dex1=%p,Dex2=%p", pDvmDex, pDvmDex->pDexFile);
     dalvik::DexFile* dex_file=pDvmDex->pDexFile;
     dalvik::DexFile* dexFile=new dalvik::DexFile;
     memcpy(dexFile, dex_file, sizeof(dalvik::DexFile));
@@ -294,7 +298,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             jclass thizClass= nullptr;
             if(isFixCode()){
                 char *fixedClassName = toJavaClassName(clsChars);
-                //LOGV("Class to be find=%s",fixedClassName);
                 jstring clsName = env->NewStringUTF(fixedClassName);//skip primitive class
                 thizClass = (jclass) env->CallStaticObjectMethod(toolsClass, findMethod, clsName);
                 if(thizClass==NULL){
@@ -375,7 +378,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
                     }
                 }
 			}
-
             if(clsDefItem.class_data_off_ != 0){
                 int size;
                 const u1* ptr= begin + clsDefItem.class_data_off_;
@@ -399,7 +401,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
                 char*dataBuf =new char[sizeof(ClassDataSection) + sizeof(ULebRef) * (virtualMethodSize + directMethodSize)];
                 ClassDataSection* section=new(dataBuf)ClassDataSection;
                 section->size=u4(ptr-beginPtr);
-                //LOGV("class data size gotten=%d",section->size);
                 section->src=beginPtr;
 
                 section->type=typeClassDataItem;
@@ -782,10 +783,17 @@ static void writeDataSection(DexCacheFile &dexCacheFile, DataSection *section) {
 
     dexCacheFile.write(fill, section->prePaddingSize);
     if(section->type!=typeClassDataItem){
-        if (dexCacheFile.tell() != section->fileOffset && section->fileOffset != 0) {
+        const uint32_t offset = dexCacheFile.tell();
+        if (offset != section->fileOffset && section->fileOffset != 0) {
             LOGE("Offset off type %s mismatch", getDexDataTypeName(section->type));
         }
         dexCacheFile.write(section->src, section->size);
+        if (section->type == typeCodeItem &&
+            !static_cast<CodeItemSect *>(section)->isValidDebugOff) {
+            art::DexFile::CodeItem *codeItem = (art::DexFile::CodeItem *) dexCacheFile.getCache(
+                    offset);
+            codeItem->debug_info_off_ = 0;
+        }
     }
     else{
         ClassDataSection* classData= static_cast<ClassDataSection*>(section);
@@ -891,37 +899,56 @@ static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile *dexFile, int 
                 if(isDalvik()){
                     dalvik::Method* meth=(dalvik::Method*)thisMethodId;
                     const u2* insns=meth->insns;
-                    //LOGV("Running in dalvik,insns=%p",insns);
+                    ///LOGV("Running in dalvik,insns=%p",insns);
                     if(insns!= NULL){
                         //no so reliable as it seems that the insns size are unknown.
-                        dalvik::DexFile *rDexFile = reinterpret_cast<dalvik::Method *>(thisMethodId)->clazz->pDvmDex->pDexFile;
-                        if (rDexFile->baseAddr == dexFile->begin_)memmove(codeItem->insns_, insns,
-                                                                          codeItem->insns_size_in_code_units_ *
-                                                                          2U);
+                        dalvik::ClassObject *classObject = reinterpret_cast<dalvik::Method *>(thisMethodId)->clazz;
+                        dalvik::DexFile *rDexFile = classObject->pDvmDex->pDexFile;
+                        if (rDexFile->baseAddr == dexFile->begin_) {
+                            if (isBadWritePtr(codeItem->insns_)) {
+                                auto fCodeItem = (art::DexFile::CodeItem *) (
+                                        reinterpret_cast<const u1 *>(insns) -
+                                        offsetof(art::DexFile::CodeItem, insns_));
+                                if (fCodeItem != codeItem) {
+                                    LOGV("Code Item fake=%p real=%p", fCodeItem, codeItem);
+                                }
+                                assert(fCodeItem == codeItem);
+                            }
+                            else {
+                                //LOGV("Into Write Code Item");
+                                //memmove(codeItem->insns_, insns, codeItem->insns_size_in_code_units_ * 2U);
+                            }
+                        }
                     }
                 } else{
-                    u4 declaring_class;
-                    GET_ART_METHOD_MEMBER_VALUE(declaring_class, declaring_class_, thisMethodId)
-                    art::DexFile *rDexFile = getRealDexFile(declaring_class);//r=real or runtime
-                    //if (rDexFile != dexFile) {
+                    u4 rCodeOff;//r=real or runtime
+                    GET_ART_METHOD_MEMBER_VALUE(rCodeOff, dex_code_item_offset_, thisMethodId);
+                    if (rCodeOff != codeOff) {
+                        LOGV("Start Judge Code Off DexfFile");
+                        u4 declaring_class;
+                        GET_ART_METHOD_MEMBER_VALUE(declaring_class, declaring_class_, thisMethodId)
+                        art::DexFile *rDexFile = getRealDexFile(declaring_class);//r=real or runtime
+                        //if (rDexFile != dexFile) {
                         //TODO:And your own codes if you want to analyse the dexFile loaded by dynamic fix e.g. AndFix.default is
                         /*if(std::find(dex_files.begin(),dex_files.end(),rDexFile)!=dex_files.end()&&env->CallStaticBooleanMethod(dexGlobal.getToolsClass()
                                 ,env->GetStaticMethodID(dexGlobal.getToolsClass()
                                         ,"isSystemClass","(Ljava/lang/Class;)Z"),thizClass)){
                             dex_files.push_back(rDexFile);
                         };*/
-                    //}
-                    u4 rCodeOff;//r=real or runtime
-                    GET_ART_METHOD_MEMBER_VALUE(rCodeOff, dex_code_item_offset_, thisMethodId);
-                    if (rCodeOff != codeOff && rDexFile == dexFile) {
-                        const char *className = dexFile->getStringFromTypeIndex(
-                                methodId.class_idx_);
-                        LOGW("Mismatch codeOff class=%s method=%s old=%u,new=%u", className,
-                             methodName, codeOff,
-                             rCodeOff);
-                        if (rCodeOff != 0) {//LOGV("Running in art,instructed code off=%u",codeOff);
-                            codeItem = reinterpret_cast<art::DexFile::CodeItem *>(begin + rCodeOff);
+                        //}
+                        if (rDexFile == dexFile) {
+                            const char *className = dexFile->getStringFromTypeIndex(
+                                    methodId.class_idx_);
+                            LOGW("Mismatch codeOff class=%s method=%s old=%u,new=%u", className,
+                                 methodName, codeOff,
+                                 rCodeOff);
+                            if (rCodeOff !=
+                                0) {//LOGV("Running in art,instructed code off=%u",codeOff);
+                                codeItem = reinterpret_cast<art::DexFile::CodeItem *>(begin +
+                                                                                      rCodeOff);
+                            }
                         }
+
                     }
                 }
             }
@@ -990,20 +1017,25 @@ static bool putCodeItem(std::vector<::DataSection *>& dataSection,
     dataSection.push_back(section);
     u4 debugOff=codeItem->debug_info_off_;
     if(debugOff!=0){
-        DataSection* debugSect=new DataSection;
         const u1* ptr= begin+debugOff;
-        debugSect->src=ptr;
-        debugSect->type=typeDebugInfoItem;
-        debugSect->parRef=section;
-        debugSect->parOffset=offsetof(art::DexFile::CodeItem,debug_info_off_);
-        readUnsignedLeb128(size,ptr);//line_start
-        int paraSize=readUnsignedLeb128(size,ptr);//parameters_size
-        for(int i=0;i<paraSize;++i){
-            readUnsignedLeb128(size,ptr);
+        if (isBadPtr(ptr)) {
+            section->isValidDebugOff = false;
+        } else {
+            DataSection *debugSect = new DataSection;
+            debugSect->src = ptr;
+            debugSect->type = typeDebugInfoItem;
+            debugSect->parRef = section;
+            debugSect->parOffset = offsetof(art::DexFile::CodeItem, debug_info_off_);
+            readUnsignedLeb128(size, ptr);//line_start
+            int paraSize = readUnsignedLeb128(size, ptr);//parameters_size
+            for (int i = 0; i < paraSize; ++i) {
+                readUnsignedLeb128(size, ptr);
+            }
+            skimDebugCode(&ptr);
+            debugSect->size = (u4) (ptr - begin - debugOff);
+            dataSection.push_back(debugSect);
         }
-        skimDebugCode(&ptr);
-        debugSect->size= (u4) (ptr - begin - debugOff);
-        dataSection.push_back(debugSect);
+
     }
     return fixOpCodeOrNot(codeItem->insns_, codeItem->insns_size_in_code_units_);
 }

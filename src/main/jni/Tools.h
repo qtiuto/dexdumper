@@ -7,14 +7,9 @@
 
 #include "globals.h"
 #include "dex_file.h"
-#include "android/log.h"
+#include "android/MyLog.h"
 #include <unistd.h>
 #include <pthread.h>
-
-#define LOGE(msg, ...) __android_log_print(ANDROID_LOG_ERROR,"Oslorde_DexDump",msg,##__VA_ARGS__)
-#define LOGV(msg, ...) __android_log_print(ANDROID_LOG_VERBOSE,"Oslorde_DexDump",msg,##__VA_ARGS__)
-#define LOGI(msg, ...)__android_log_print(ANDROID_LOG_INFO,"Oslorde_DexDump",msg,##__VA_ARGS__)
-#define LOGW(msg, ...)__android_log_print(ANDROID_LOG_WARN,"Oslorde_DexDump",msg,##__VA_ARGS__)
 void skipULeb128(const uint8_t *&ptr);
 int parsePositiveDecimalInt(const char *str);
 char * my_strrev(char *str);

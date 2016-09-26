@@ -39,7 +39,7 @@ public class Utils {
                 for (File f : files) {
                     rDelete(f);
                 }
-            b = file.delete();
+            b = file.getAbsoluteFile().delete();
         }
         return b;
     }
