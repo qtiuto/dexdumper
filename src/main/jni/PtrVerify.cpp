@@ -17,12 +17,12 @@ x86/FreeBSD、x86/NetBSD、x86/OpenBSD MacOS will sigal SIGBUS
 #else
 #define ERROR_SIGNAL SIGSEGV
 #endif
-static sigjmp_buf badreadjmpbuf;
+static sigjmp_buf badptrjmpbuf;
 
 
-static void badreadfunc(int signo) {
+static void badptrfunc(int signo) {
     /*write(STDOUT_FILENO, "catch\n", 6);*/
-    siglongjmp(badreadjmpbuf, 1);
+    siglongjmp(badptrjmpbuf, 1);
 }
 
 int isbadwriteptr(const void *ptr, int length) {
@@ -30,7 +30,7 @@ int isbadwriteptr(const void *ptr, int length) {
     int ret = 0;
 
     /*init new handler struct*/
-    sa.sa_handler = badreadfunc;
+    sa.sa_handler = badptrfunc;
     memset(&sa.sa_mask, 0, sizeof(sa.sa_mask));
     sa.sa_flags = 0;
 
@@ -38,12 +38,11 @@ int isbadwriteptr(const void *ptr, int length) {
     if (sigaction(ERROR_SIGNAL, &sa, &osa) < 0)
         return (-1);
 
-    if (sigsetjmp(badreadjmpbuf, 1) == 0) {
+    if (sigsetjmp(badptrjmpbuf, 1) == 0) {
         int i, hi = length / sizeof(int), remain = length % sizeof(int);
         int *pi = (int *) ptr;
         char *pc = (char *) ptr + hi;
         for (i = 0; i < hi; i++) {
-
             int value = pi[i];
             pi[i] = value;
         }
@@ -55,6 +54,7 @@ int isbadwriteptr(const void *ptr, int length) {
     else {
         ret = 1;
     }
+
 
     /*restore prevouis signal actions*/
     if (sigaction(ERROR_SIGNAL, &osa, NULL) < 0)
@@ -68,7 +68,7 @@ int isbadreadptr(const void *ptr, int length) {
     int ret = 0;
 
     /*init new handler struct*/
-    sa.sa_handler = badreadfunc;
+    sa.sa_handler = badptrfunc;
     memset(&sa.sa_mask, 0, sizeof(sa.sa_mask));
     sa.sa_flags = 0;
 
@@ -76,7 +76,7 @@ int isbadreadptr(const void *ptr, int length) {
     if (sigaction(ERROR_SIGNAL, &sa, &osa) < 0)
         return (-1);
 
-    if (sigsetjmp(badreadjmpbuf, 1) == 0) {
+    if (sigsetjmp(badptrjmpbuf, 1) == 0) {
         int i, hi = length / sizeof(int), remain = length % sizeof(int);
         int *pi = (int *) ptr;
         char *pc = (char *) ptr + hi;

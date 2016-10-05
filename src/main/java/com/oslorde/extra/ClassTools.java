@@ -79,9 +79,9 @@ public final class ClassTools {
         synchronized (out) {
             Class topClass = field.getDeclaringClass();
             appendClassType(topClass, out);
-            out.write('|');
+            out.writeAscii('|');
             writeMUtf8(field.getName(), out);
-            out.write('|');
+            out.writeAscii('|');
             appendClassType(field.getType(), out);
             if (topClass != cls) {
                 ArrayList<Class> belows = new ArrayList<>(4);
@@ -89,11 +89,11 @@ public final class ClassTools {
                 while ((cls = cls.getSuperclass()) != topClass) belows.add(cls);
                 for (int i = 0, N = belows.size(); i < N; ++i) {
                     Class belowClass = belows.get(i);
-                    out.write('|');
+                    out.writeAscii('|');
                     appendClassType(belowClass, out);
                 }
             }
-            out.write('\0');
+            out.writeAscii('\0');
             byte[] ret = out.toByteArray();
             out.reset();
             return ret;
@@ -121,11 +121,11 @@ public final class ClassTools {
         synchronized (out) {
             Class topClass = vMethod.getDeclaringClass();
             appendClassType(cls, out);
-            out.write('|');
+            out.writeAscii('|');
             writeMUtf8(vMethod.getName(), out);
-            out.write('|');
+            out.writeAscii('|');
             appendClassType(vMethod.getReturnType(), out);
-            out.write('|');
+            out.writeAscii('|');
             Class[] paras = vMethod.getParameterTypes();
             for(Class cl:paras){
                 appendClassType(cl, out);
@@ -136,11 +136,11 @@ public final class ClassTools {
                 while ((cls = cls.getSuperclass()) != topClass) supers.add(cls);
                 supers.add(topClass);
                 for (Class superClass : supers) {
-                    out.write('|');
+                    out.writeAscii('|');
                     appendClassType(superClass, out);
                 }
             }
-            out.write('\0');
+            out.writeAscii('\0');
             byte[] ret = out.toByteArray();
             out.reset();
             return ret;
@@ -154,7 +154,7 @@ public final class ClassTools {
         for (int i = 0; i < len; ++i) {
             c = src.charAt(i);
             if (c != 0 && c <= 127) {
-                out.write(c);
+                out.writeAscii(c);
             } else {
                 if (c <= 2047) {
                     out.write((byte) (0xc0 | (0x1f & (c >> 6))));
@@ -368,23 +368,23 @@ public final class ClassTools {
     private static void appendClassType(Class type, ByteOut out) {
         Class component;
         while ((component = type.getComponentType()) != null) {
-            out.write('[');
+            out.writeAscii('[');
             type = component;
         }
         if (type.isPrimitive()) {
-            if (type == int.class) out.write('I');
-            else if (type == boolean.class) out.write('Z');
-            else if (type == long.class) out.write('J');
-            else if (type == byte.class) out.write('B');
-            else if (type == float.class) out.write('F');
-            else if (type == double.class) out.write('D');
-            else if (type == char.class) out.write('C');
-            else if (type == short.class) out.write('S');
-            else if (type == void.class) out.write('V');
+            if (type == int.class) out.writeAscii('I');
+            else if (type == boolean.class) out.writeAscii('Z');
+            else if (type == long.class) out.writeAscii('J');
+            else if (type == byte.class) out.writeAscii('B');
+            else if (type == float.class) out.writeAscii('F');
+            else if (type == double.class) out.writeAscii('D');
+            else if (type == char.class) out.writeAscii('C');
+            else if (type == short.class) out.writeAscii('S');
+            else if (type == void.class) out.writeAscii('V');
         } else {
-            out.write('L');
+            out.writeAscii('L');
             writeMUtf8(type.getName().replace('.', '/'), out);
-            out.write(';');
+            out.writeAscii(';');
         }
     }
 

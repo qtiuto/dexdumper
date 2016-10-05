@@ -8,9 +8,12 @@
 #include "dalvik/Object.h"
 #include "CodeResolver.h"
 #include "PtrVerify.h"
+#include <setjmp.h>
+
 const char fill[] ="\0\0\0\0\0\0\0\0";
 DexGlobal dexGlobal;
 JavaVM *javaVM;
+static sigjmp_buf nativeCrashJump;
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved){
     JNIEnv* env;
@@ -72,6 +75,7 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV16(JNIEnv *env,
     dexGlobal.sdkOpt=DALVIK;
     CodeResolver::resetInlineTable();
     dumpDex(env,dex_files,outDir);
+    // ReleaseStringUTFChars can be called with an exception pending.
     env->ReleaseStringUTFChars(baseOutDir, outDir);
     delete dexFile;
 }
@@ -85,6 +89,7 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV19ForArt(JNIEnv
     jboolean isCopy ;
     const char* outDir= env->GetStringUTFChars(baseOutDir, &isCopy );
     dumpDex(env,dex_files,outDir);
+    // ReleaseStringUTFChars can be called with an exception pending.
     env->ReleaseStringUTFChars(baseOutDir, outDir);
 }
 JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV21(JNIEnv *env, jclass thisClass
@@ -95,6 +100,7 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV21(JNIEnv *env,
 	jboolean isCopy ;
 	const char* outDir=env->GetStringUTFChars(baseOutDir, &isCopy );
 	dumpDex(env,dex_files[0], outDir);
+    // ReleaseStringUTFChars can be called with an exception pending.
 	env->ReleaseStringUTFChars(baseOutDir, outDir);
 }
 JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV23(JNIEnv *env,jclass thisClas
@@ -122,13 +128,38 @@ JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV23(JNIEnv *env,
 	jboolean isCopy;
 	const char* outDir = env->GetStringUTFChars(baseOutDir, &isCopy);
 	dumpDex(env,ret, outDir);
+    // ReleaseStringUTFChars can be called with an exception pending.
 	env->ReleaseStringUTFChars(baseOutDir, outDir);
 }
+
+static void nativeCrashHandler(int sig) {
+    siglongjmp(nativeCrashJump, 1);
+}
+
+static bool isNativeCrashed(JNIEnv *env) {
+
+    if (dexGlobal.isThrowToJava()) {
+        struct sigaction sa[2], osa[2];
+        sa[0].sa_handler = nativeCrashHandler;
+        memset(&sa[0].sa_mask, 0, sizeof(sa[0].sa_mask));
+        sa[0].sa_flags = 0;
+        sigaction(SIGABRT, &sa[0], &osa[0]);
+        sa[1] = sa[0];
+        sigaction(SIGSEGV, &sa[1], &osa[1]);
+        if (sigsetjmp(nativeCrashJump, 1) != 0) {
+            env->ThrowNew(env->FindClass("Ljava/lang/RuntimeException;"), "Oops!Native Crashed");
+            return true;
+        }
+    }
+    return false;
+}
 static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,const char* outDir){
+    if (isNativeCrashed(env)) {
+        return;
+    }
     using namespace art;
 	int dirLen = (int) strlen(outDir);
     char dexFileName[dirLen + 23];
-
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreturn-stack-address"
     dexGlobal.dexFileName = dexFileName;//only within this method
@@ -185,7 +216,6 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         LinkData* linkData= nullptr;
 
         u1* begin = const_cast<u1*>(dex->begin_);
-        LOGV("start address,%p", (void *) begin);
 
 		DexFile::Header header =*dex->header_ ;
 		if (memcmp(header.magic_, "dex\n",4) != 0 ||!judgeVersion(&header.magic_[4])) {
@@ -290,7 +320,7 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         fixMapListHeaderPart(&header, heads, mapList);//mapList second
         writeHeadSection(heads,fd);
 
-        LOGV("Start resolve clas def");
+        LOGV("Start resolving class def");
 		for (int i = 0; i < idNum; ++i) {
             const DexFile::ClassDef &clsDefItem = *(classDefs + i);
             const char* clsChars=dex->getStringFromTypeIndex(clsDefItem.class_idx_);
@@ -471,12 +501,12 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
             else delete [] (char*)(section);
         }
         LOGV("Execute pending");
-        //usleep(2000);
         if(dexGlobal.pool!= nullptr){
             dexGlobal.pool->executeAllPendingTasks();
             dexGlobal.pool->waitForFinish();
         }
         LOGW("Wait over!Start writing new header");
+        //the most serious efficiency problems
         jstring dexPath = env->NewStringUTF(dexFileName);
         jmethodID hashMid=env->GetStaticMethodID(toolsClass, "getDexSHA1Hash", "(Ljava/lang/String;)[B");
         jbyteArray fileContent= (jbyteArray) env->CallStaticObjectMethod(toolsClass, hashMid, dexPath);
@@ -489,11 +519,9 @@ static void dumpDex(JNIEnv* env,std::vector<const art::DexFile*>& dex_files,cons
         pwrite(fd,(const char*)fileHeader, sizeof(DexFile::Header),0);
         close(fd);
         env->ReleaseByteArrayElements(fileContent,readBuf,JNI_ABORT);
-        //env->DeleteLocalRef(fileContent);
+        env->DeleteLocalRef(fileContent);
 
-        LOGV("New Header Written");
-       // usleep(1000);
-        LOGV("One dex over");
+        LOGV("One dex is over");
 	}
     dexGlobal.releaseToolsClass(env);
 }
@@ -790,6 +818,7 @@ static void writeDataSection(DexCacheFile &dexCacheFile, DataSection *section) {
         dexCacheFile.write(section->src, section->size);
         if (section->type == typeCodeItem &&
             !static_cast<CodeItemSect *>(section)->isValidDebugOff) {
+            LOGV("Meet bad code Item");
             art::DexFile::CodeItem *codeItem = (art::DexFile::CodeItem *) dexCacheFile.getCache(
                     offset);
             codeItem->debug_info_off_ = 0;
@@ -854,7 +883,7 @@ static void putAnnoSetItem( std::vector<::DataSection *>& dataSection,DataSectio
         section->type = typeAnnotationItem;
         section->src = item;
         section->size = 1U+ getEncodedAnnotationItemSize(item->annotation_);
-        section->parOffset =(i+1)<<2 ;
+        section->parOffset = (i + 1) << 2;
         section->parRef=setItemSect;
         dataSection.push_back(section);
     }
@@ -883,19 +912,17 @@ static void fixMethodCodeIfNeeded(JNIEnv *env, const art::DexFile *dexFile, int 
             if(isFixCode()&&thizClass!= nullptr){
                 //TODO:For Total method replacement, there may should be a more complex treatment
                 const char* methodName= dexFile->getStringByStringIndex(methodId.name_idx_);
-                char *sig = getProtoSig(methodId.proto_idx_, dexFile);
+                std::string sig = std::move(getProtoSig(methodId.proto_idx_, dexFile));
                 jmethodID  thisMethodId;
                 if ((accessFlag & dalvik::ACC_STATIC) == 0)
-                    thisMethodId = env->GetMethodID(thizClass, methodName, sig);
-                else thisMethodId = env->GetStaticMethodID(thizClass, methodName, sig);
+                    thisMethodId = env->GetMethodID(thizClass, methodName, &sig[0]);
+                else thisMethodId = env->GetStaticMethodID(thizClass, methodName, &sig[0]);
 
                 if(env->ExceptionCheck()==JNI_TRUE){
                     //LOGW("Expected Method not Found in %s%s of class %s",methodName,sig,dexGlobal->curClass);
                     env->ExceptionClear();
-                    delete[] sig;
                     goto PutCodeItem;
                 }
-                delete[] sig;
                 if(isDalvik()){
                     dalvik::Method* meth=(dalvik::Method*)thisMethodId;
                     const u2* insns=meth->insns;

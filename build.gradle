@@ -33,7 +33,7 @@ model{
         buildTypes {
             release {
                 ndk{
-                    debuggable true
+                    cppFlags.add("-D RELEASE=true")
                 }
                 minifyEnabled false
                 proguardFiles.add(file('proguard-rules.pro'))

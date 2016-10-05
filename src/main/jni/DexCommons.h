@@ -19,6 +19,7 @@ enum DumpMode{
     MODE_LOOSE=0x0,
     MODE_DIRECT=0x1,
     MODE_FIX_CODE=0x2,
+    MODE_THROW_TO_JAVA = 0x4
 };
 enum SDK_OPT{
     DALVIK,
@@ -74,7 +75,6 @@ public:
     u2 sdkOpt;
     FixedThreadPool* pool= nullptr;
     char* dexFileName;
-    const char* curClass;
     const art::DexFile* dexFile;
 
     void initPoolIfNeeded(void* (* run_)(void* args),
@@ -95,17 +95,23 @@ public:
         }
     }
 
-    const jclass getToolsClass() {
+    inline bool isThrowToJava() {
+        return (dumpMode & MODE_THROW_TO_JAVA) == 0;
+    }
+
+    const inline jclass getToolsClass() {
         return toolsClass;
     }
-    const jmethodID getGetMethodID() {
+
+    const inline jmethodID getGetMethodID() {
         return getMethodId;
     }
-    const jmethodID getGetFieldID() {
+
+    const inline jmethodID getGetFieldID() {
         return getFieldId;
     }
 
-    void releaseToolsClass(JNIEnv* env){
+    void inline releaseToolsClass(JNIEnv *env) {
         env->DeleteGlobalRef(toolsClass);
         toolsClass= nullptr;
     }

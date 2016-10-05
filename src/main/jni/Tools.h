@@ -22,10 +22,11 @@ u1* writeUnsignedLeb128(u1* ptr, u4 data);
 
 int dexUtf8Cmp(const char *s1, const char *s2);
 
-char *getProtoSig(const u4 index, const art::DexFile *dexFile);
+std::string getProtoSig(const u4 index, const art::DexFile *dexFile);
 char *toJavaClassName(const char *clsChars);
-std::string &getProtoString(const art::DexFile::ProtoId &protoId,
-                            const art::DexFile* dexFile, std::string &protoType);
+
+void getProtoString(const art::DexFile::ProtoId &protoId,
+                    const art::DexFile* dexFile, std::string &protoType);
 void logMethod(const art::DexFile::MethodId& methodId,const art::DexFile* dexFile);
 
 

@@ -70,14 +70,11 @@ public class ByteOut {
      *
      * @param c the byte to be written.
      */
-    public synchronized void write(char c) {
+    public synchronized void writeAscii(char c) {
         if (count == buf.length) {
             expand(1);
         }
-        buf[count++] = (byte) (c & 0xff);
-        if (c > 0xff) {
-            buf[count++] = (byte) (c >> 8);
-        }
+        buf[count++] = (byte) c;
     }
 
     /**

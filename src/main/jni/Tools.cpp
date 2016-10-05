@@ -4,7 +4,7 @@
 
 #include "Tools.h"
 
-char *getProtoSig(const u4 index, const art::DexFile *dexFile) {
+std::string getProtoSig(const u4 index, const art::DexFile *dexFile) {
     using namespace art;
     std::string protoType("(");
     if (index >= dexFile->header_->proto_ids_size_) {
@@ -15,12 +15,11 @@ char *getProtoSig(const u4 index, const art::DexFile *dexFile) {
     protoType+=")";
     const char* protoString=dexFile->getStringFromTypeIndex(protoId.return_type_idx_);
     protoType+=protoString;
-    char* buf=new char[protoType.length()+1];
-    strncpy(buf,protoType.c_str(),protoType.length()+1);
-    return buf;
+    return protoType;
 }
 
-std::string &getProtoString(const art::DexFile::ProtoId &protoId,const art::DexFile* dexFile,std::string &protoType) {
+void getProtoString(const art::DexFile::ProtoId &protoId, const art::DexFile *dexFile,
+                    std::string &protoType) {
     if(protoId.parameters_off_ != 0){
         const art::DexFile::TypeList* list= reinterpret_cast<const art::DexFile::TypeList*>(protoId.parameters_off_ + dexFile->begin_);
         int size=list->Size();
@@ -29,13 +28,11 @@ std::string &getProtoString(const art::DexFile::ProtoId &protoId,const art::DexF
             protoType+=dexFile->getStringFromTypeIndex(item.type_idx_);
         };
     }
-    return protoType;
 }
 void logMethod(const art::DexFile::MethodId& methodId, const art::DexFile* dexFile){
-    char *sig = getProtoSig(methodId.proto_idx_, dexFile);
     LOGW("Log method class=%s method=%s%s", dexFile->getStringFromTypeIndex(methodId.class_idx_),
-         dexFile->getStringByStringIndex(methodId.name_idx_),sig);
-    delete [] sig;
+         dexFile->getStringByStringIndex(methodId.name_idx_),
+         getProtoSig(methodId.proto_idx_, dexFile).c_str());
 }
 
 char *toJavaClassName(const char *clsChars) {

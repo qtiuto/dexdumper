@@ -3,6 +3,7 @@
 //
 #include "CodeResolver.h"
 #include "dalvik/InlineTable.h"
+#include "dalvik/VerfiyError.h"
 
 extern bool fixOpCodeOrNot(u2 *insns, u4 insns_szie);
 const JNINativeMethod getMethods[] = {
@@ -17,6 +18,7 @@ static class ref{
 public:
     u4 strTypeIdx;
     u4 clsTypeIdx;
+    u4 emptyMethodIndex;
     const art::DexFile* curDexFile= nullptr;
 } globalRef;
 
@@ -78,6 +80,47 @@ void CodeResolver::threadDestroy() {
     env= nullptr;
     LOGV("Vm thread detached");
 }
+
+void CodeResolver::verifyRegCount(u2 insns[], u4 pos) {
+    u2 op = insns[pos] & u2(0xff);
+    int regCount = 0;
+    switch (op) {
+        case CodeResolver::invokeVirtual:
+        case CodeResolver::invokeSuper:
+        case invokeInterface:
+        case invokeDirect:
+            regCount--;
+        case CodeResolver::invokeStatic:
+            regCount += insns[pos] >> 12;
+            break;
+        case CodeResolver::invokeVirtualR:
+        case CodeResolver::invokeSuperR:
+        case invokeInterfaceR:
+        case invokeDirectR:
+            regCount--;
+        case CodeResolver::invokeStaticR:
+            regCount += insns[pos] >> 8;
+            break;
+        default: {
+            return;
+        }
+    }
+    auto &methodId = dexGlobal.dexFile->method_ids_[insns[pos + 1]];
+    auto &protoId = dexGlobal.dexFile->
+            proto_ids_[methodId.proto_idx_];
+    u4 size;
+    if (protoId.parameters_off_ == 0) {
+        size = 0;
+    } else {
+        auto typeList = reinterpret_cast<const art::DexFile::TypeList *>(dexGlobal.dexFile->begin_ +
+                                                                         protoId.parameters_off_);
+        size = typeList->Size();
+    }
+    if (size != regCount) {
+        logMethod(methodId, dexGlobal.dexFile);
+        LOGE("Reg count doesn't match,expected=%d,given=%u", regCount, size);
+    }
+}
 void* CodeResolver::runResolver(void *args) {
     bool isLog= false;
     CodeResolver*resolver = reinterpret_cast<CodeResolver*>(args);
@@ -87,15 +130,14 @@ void* CodeResolver::runResolver(void *args) {
         throw "Polluted method pointer";
     }
     const char *methodName=dexGlobal.dexFile->getStringByStringIndex(resolver->methodId->name_idx_);
-    char *sig = getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile);
-    if (equals("Lcom/oslorde/extra/DexDumper;", clsName) &&
-        equals(methodName, "getFirstSupportedAbi")) {
+    /*if (equals("Lcom/mysql/jdbc/ServerPreparedStatement;", clsName) &&
+        equals(methodName, "executeBatchSerially")) {
          isLog= true;
-    }
+    }*/
     ::isLog = isLog;
     //LOGV("Start Analysis,clsIdx=%u,class=%s,method=%s%s",
-    // resolver->methodId->class_idx_, clsName, methodName, sig);
-    delete [] sig;
+    // resolver->methodId->class_idx_, clsName, methodName, getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile));
+
     resolver->initTries();
     const art::DexFile::CodeItem* code= resolver->codeItem;
 
@@ -182,7 +224,7 @@ void* CodeResolver::runResolver(void *args) {
                 switch (opCode) {
 #define CHECK_FIELD_NPE() u1 rOb= preData >> 4;\
                 resolver->checkRegRange(rOb);\
-                if(curNode->registerTypes[rOb]==TypePrimitive){\
+                if(curNode->registerTypes[rOb]==TypeZero){\
                     isNpeReturn= true;\
                     goto Next;\
                 }
@@ -239,17 +281,17 @@ void* CodeResolver::runResolver(void *args) {
                     case invokeVirtualQ: {
 #define handle_invokeVirtualQ(Op, reg)\
                         resolver->checkRegRange(reg);\
-                        if(curNode->registerTypes[reg]==TypePrimitive){\
+                        if(curNode->registerTypes[reg]==TypeZero){\
                             isNpeReturn= true;\
                             if(isLog)LOGE("Reg %d is null at invoke",reg);\
                             /*NullPointerException;*/\
                             goto Next;\
                         }\
-                        *ins=Op;\
-                         /*LOGV("Meet invokeVirtualQ,regNum=%d",reg);*/\
+                         if(isLog)LOGV("Meet invokeVirtualQ,regNum=%d",reg);\
                         u4 methodIdx= resolver->getVMethodFromIndex(curNode->registerTypes[reg], insns[pos + 1]);\
                         /*if(isLog)LOGV("Got MethodIdx,idx=%u cls=%s",methodIdx,clsName);*/\
                         if(methodIdx==UNDEFINED) goto Next;\
+                        *ins=Op;\
                         resolver->changeIdx(insns, pos, methodIdx);\
                         pos+=3;goto JudgeTry;
 
@@ -412,52 +454,127 @@ void* CodeResolver::runResolver(void *args) {
                         goto JudgeTry;
                     }
                     case OP_BREAKPOINT: {
-                        throw std::runtime_error("OP_BREAKPOINT shouldn't occurr in normal code");
+                        throw std::runtime_error("OP_BREAKPOINT shouldn't occur in normal code");
                     }
                     case OP_THROW_VERIFICATION_ERROR: {
-                        char *sigature = getProtoSig(resolver->methodId->proto_idx_,
-                                                     dexGlobal.dexFile);
-                        LOGW("This app uses api higher than current in method=%s%s in class %s. Maybe you should run it on "
-                                     "higher veision of system, but rest assured,it will go well on your system!",
-                             methodName, sigature, clsName);
-                        delete sigature;
-                        isNpeReturn = true;
-                        goto Next;
-                    }
-                    case OP_EXECUTE_INLINE: {
-                        {
-                            u1 iReg = u1(insns[pos + 2] & 0xf);
-                            resolver->checkRegRange(iReg);
-                            if (curNode->registerTypes[iReg] == TypePrimitive) {
-                                isNpeReturn = true;
-                                //NullPointerException;
-                                goto Next;
+                        u1 refType = preData >> 6;
+                        int ret = 0;
+                        std::string errorMsg;
+                        switch (refType) {
+                            case VERIFY_ERROR_REF_FIELD: {
+                                u2 fieldIndex = insns[pos + 1];
+                                auto &fieldId = dexGlobal.dexFile->field_ids_[fieldIndex];
+                                errorMsg = std::move(formMessage("field=",
+                                                                 dexGlobal.dexFile->getStringByStringIndex(
+                                                                         fieldId.name_idx_),
+                                                                 " of type=",
+                                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                                         fieldId.type_idx_),
+                                                                 " in class=",
+                                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                                         fieldId.class_idx_)));
+                                break;
+                            }
+                            case VERIFY_ERROR_REF_CLASS: {
+                                u4 classType = insns[pos + 1];
+                                const char *classTypeStr = dexGlobal.dexFile->getStringFromTypeIndex(
+                                        classType);
+                                if (insns[pos + 2] == nop) {
+                                    if (classTypeStr[1] == '\0')
+                                        classType = TypePrimitive;
+                                    u4 targetReg = 0;
+                                    for (u4 i = code->registers_size_ - 1u; i != -1; --i) {
+                                        if (curNode->registerTypes[i] == classType) {
+                                            targetReg = i;
+                                            break;
+                                        }
+                                        else if (curNode->registerTypes[i] == TypeZero) {
+                                            targetReg = i;
+                                        }
+                                    }
+                                    *ins = fillArray;
+                                    ins[1] = 0;
+                                    insns[pos + 2] = (u2) targetReg;
+                                    errorMsg = std::move(formMessage(
+                                            "filled-new-array or filled-new-array/range instruction has class type=",
+                                            classTypeStr));
+                                    ret = 3;
+                                } else {
+                                    errorMsg = std::move(formMessage(
+                                            "instruction that is one of these five instruction: const-class, new-instance, "
+                                                    "check-cast,instance-of or new-array  and has class type=",
+                                            classTypeStr));
+                                }
+                                break;
+                            }
+                            case VERIFY_ERROR_REF_METHOD: {
+                                auto &methodId = dexGlobal.dexFile->method_ids_[insns[pos + 1]];
+                                ret = 3;
+                                auto &protoId = dexGlobal.dexFile->
+                                        proto_ids_[methodId.proto_idx_];
+                                u4 size;
+                                if (protoId.parameters_off_ == 0) {
+                                    size = 0;
+                                } else {
+                                    auto typeList = reinterpret_cast<const art::DexFile::TypeList *>(
+                                            dexGlobal.dexFile->begin_ + protoId.parameters_off_);
+                                    size = typeList->Size();
+                                }
+                                LOGV("Parameter size=%u", size);
+                                if (size < 5) {
+                                    ins[1] = u1(size + 1) << 4;
+                                    ins[0] = invokeVirtual;
+                                } else {
+                                    ins[1] = u1(size + 1);
+                                    ins[0] = invokeVirtualR;
+                                }
+                                if ((insns[pos + 3] & 0xff) == moveResultOb) {
+                                    resolver->checkRegRange(insns[pos + 3] >> 8);
+                                    curNode->registerTypes[insns[pos + 3] >>
+                                                           8] = protoId.return_type_idx_;
+                                    ++ret;
+                                }
+                                errorMsg = std::move(formMessage("method=",
+                                                                 dexGlobal.dexFile->getStringByStringIndex(
+                                                                         methodId.name_idx_),
+                                                                 &getProtoSig(methodId.proto_idx_,
+                                                                              dexGlobal.dexFile)[0],
+                                                                 " in class=",
+                                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                                         methodId.class_idx_)));
+
+                            }
+                            default: {
+                                break;
                             }
                         }
-                        goto ExecuteInlineHandle;
+                        LOGW("This app uses api higher than the current with unresolved %s inside method=%s%s of class %s at pos=%d."
+                                     "If OK,please fix it later or run it on"
+                                     " higher version of system,",
+                             &errorMsg[0], methodName, &getProtoSig(resolver->methodId->proto_idx_,
+                                                                    dexGlobal.dexFile)[0], clsName,
+                             pos);
+                        if (ret == 0) {
+                            isNpeReturn = true;
+                            goto Next;
+                        } else {
+                            pos += ret;
+                            goto JudgeTry;
+                        }
+                    }
+                    case OP_EXECUTE_INLINE: {
+                        handleExecuteInline(insns, pos, ins);
+                        pos += 3;
+                        goto JudgeTry;
                     }
                     case OP_EXECUTE_INLINE_RANGE: {
                         resolver->checkRegRange(insns[pos + 2]);
-                        if (curNode->registerTypes[insns[pos + 2]] == TypePrimitive) {
+                        if (curNode->registerTypes[insns[pos + 2]] == TypeZero) {
                             isNpeReturn = true;
                             //NullPointerException;
                             goto Next;
                         }
-                        ExecuteInlineHandle:
-                        u2 idx = insns[pos + 1];
-                        if (idx >= InlineOpsTableSize) {
-                            throw std::runtime_error(formMessage("ExecuteIdx out of range:", idx));
-                        }
-                        if (idx >= InlineVirtualStart && idx <= InlineVirtualEnd) {
-                            *ins = opCode == OP_EXECUTE_INLINE ? invokeVirtual : invokeVirtualR;
-                        } else *ins = opCode == OP_EXECUTE_INLINE ? invokeStatic : invokeStaticR;
-                        InlineMethod &inlineMethod = InlineOpsTable[idx];
-                        if (inlineMethod.methodIdx == UNDEFINED) {
-                            inlineMethod.methodIdx = binarySearchMethod(
-                                    inlineMethod.classDescriptor, inlineMethod.methodName,
-                                    inlineMethod.retType, inlineMethod.parSig);
-                        }
-                        insns[pos + 1] = (u2) inlineMethod.methodIdx;
+                        handleExecuteInline(insns, pos, ins);
                         pos += 3;
                         goto JudgeTry;
                     }
@@ -501,7 +618,7 @@ void* CodeResolver::runResolver(void *args) {
                         if (preData == 0) {
                             *ins = invokeDirectR;
                         } else if (preData == 1) {
-                            insns[0] = invokeDirect;
+                            insns[pos] = invokeDirect | 1 << 12;
                         } else
                             throw std::runtime_error("OP_INVOKE_OBJECT_INIT_RANGE with illegal op");
                         pos += 3;
@@ -539,13 +656,13 @@ void* CodeResolver::runResolver(void *args) {
                     u1 rA= preData & (u1)0xf;
                     resolver->checkRegRange(rA+1);
                     resolver->checkRegRange(preData>>4);
-                    curNode->registerTypes[rA]=curNode->registerTypes[preData >> 4];
-                    curNode->registerTypes[rA+1]=TypePrimitive;
+                    curNode->registerTypes[rA] = TypePrimitive;
+                    curNode->registerTypes[rA + 1] = TypePrimitiveExtend;
                     pos++;break;
                 }
                 case move16W:
                     resolver->checkRegRange(preData+1);
-                    curNode->registerTypes[preData + 1]=TypePrimitive;
+                    curNode->registerTypes[preData + 1] = TypePrimitiveExtend;
                 case move16:
                 case moveOb16:
                     resolver->checkRegRange(preData);
@@ -554,7 +671,7 @@ void* CodeResolver::runResolver(void *args) {
                     pos +=2;break;
                 case move16LW:
                     resolver->checkRegRange(insns[pos + 1] + 1);
-                    curNode->registerTypes[insns[pos + 1] + 1]=TypePrimitive;
+                    curNode->registerTypes[insns[pos + 1] + 1] = TypePrimitiveExtend;
                 case move16L:
                 case moveOb16L:
                     resolver->checkRegRange(insns[pos + 1]);
@@ -563,7 +680,7 @@ void* CodeResolver::runResolver(void *args) {
                     pos +=3;break;
                 case moveResultW:
                     resolver->checkRegRange(preData+1);
-                    curNode->registerTypes[preData+1]=TypePrimitive;
+                    curNode->registerTypes[preData + 1] = TypePrimitiveExtend;
                 case moveResult:
                     resolver->checkRegRange(preData);
                     curNode->registerTypes[preData]=TypePrimitive;
@@ -602,13 +719,39 @@ void* CodeResolver::runResolver(void *args) {
                 case throwD:
                     //LOGV("meet return point %s %s",clsName,methodName);
                     goto Next;
-                case const32:++pos;
-                case const16:
-                case const16H:pos+=2;
+                case const32: {
                     resolver->checkRegRange(preData);
-                    curNode->registerTypes[preData]=TypePrimitive;
+                    u4 value = insns[pos + 1] | (insns[pos + 2] << 16);
+                    if (value == 0)
+                        curNode->registerTypes[preData] = TypeZero;
+                    else curNode->registerTypes[preData & 0xf] = TypePrimitive;
+                    pos += 3;
                     break;
-                case const4:
+                }
+                case const16: {
+                    resolver->checkRegRange(preData);
+                    u2 value = insns[pos + 1];
+                    if (value == 0)
+                        curNode->registerTypes[preData] = TypeZero;
+                    else curNode->registerTypes[preData & 0xf] = TypePrimitive;
+                    pos += 2;
+                    break;
+                }
+                case const16H: {
+                    pos += 2;
+                    resolver->checkRegRange(preData);
+                    curNode->registerTypes[preData & 0xf] = TypePrimitive;
+                    break;
+                }
+                case const4: {
+                    ++pos;
+                    resolver->checkRegRange(preData & 0xfu);
+                    u1 value = preData >> 4;
+                    if (value == 0)
+                        curNode->registerTypes[preData & 0xf] = TypeZero;
+                    else curNode->registerTypes[preData & 0xf] = TypePrimitive;
+                    break;
+                }
                 case arrayLen:++pos;
                     resolver->checkRegRange(preData & 0xfu);
                     curNode->registerTypes[u1(preData & 0xf)]=TypePrimitive;
@@ -626,7 +769,7 @@ void* CodeResolver::runResolver(void *args) {
                     pos +=2;
                     resolver->checkRegRange(preData+1u);
                     curNode->registerTypes[preData]=TypePrimitive;
-                    curNode->registerTypes[ preData + 1u]=TypePrimitive;
+                    curNode->registerTypes[preData + 1u] = TypePrimitiveExtend;
                     break;
                 case constStrJ:++pos;
                 case constStr:pos+=2;
@@ -724,7 +867,7 @@ void* CodeResolver::runResolver(void *args) {
                 case agetW:
                 case sgetW:
                     resolver->checkRegRange(preData+1);
-                    curNode->registerTypes[preData+1]=TypePrimitive;
+                    curNode->registerTypes[preData + 1] = TypePrimitiveExtend;
                 case aget:
                 case agetBoolean:
                 case agetByte:
@@ -743,7 +886,7 @@ void* CodeResolver::runResolver(void *args) {
                 }
                 case igetW:
                     resolver->checkRegRange((preData&0xfu)+1);
-                    curNode->registerTypes[(preData&0xf)+1]=TypePrimitive;
+                    curNode->registerTypes[(preData & 0xf) + 1] = TypePrimitiveExtend;
                 case iget:
                 case igetBoolean:
                 case igetByte:
@@ -751,7 +894,7 @@ void* CodeResolver::runResolver(void *args) {
                 case igetShort:{
                     u1 rOb= preData >> 4;
                     resolver->checkRegRange(rOb);
-                    if(curNode->registerTypes[rOb]==TypePrimitive){
+                    if (curNode->registerTypes[rOb] == TypeZero) {
                         isNpeReturn= true;
                         goto Next;
                     }
@@ -764,7 +907,7 @@ void* CodeResolver::runResolver(void *args) {
                     u1 typeReg = (u1) (insns[pos + 1] & 0xff);
                     resolver->checkRegRange(typeReg);
                     u4 arrayType = curNode->registerTypes[typeReg];
-                    if (arrayType == TypePrimitive) {
+                    if (arrayType == TypeZero) {
                         isNpeReturn = true;
                         goto Next;
                     }
@@ -805,7 +948,7 @@ void* CodeResolver::runResolver(void *args) {
                 case igetOb:{
                     u1 rOb= preData >> 4;
                     resolver->checkRegRange(rOb);
-                    if(curNode->registerTypes[rOb]==TypePrimitive){
+                    if (curNode->registerTypes[rOb] == TypeZero) {
                         isNpeReturn= true;
                         goto Next;
                     }
@@ -832,7 +975,7 @@ void* CodeResolver::runResolver(void *args) {
                 {
                     u1 rOb= preData >> 4;
                     resolver->checkRegRange(rOb);
-                    if(curNode->registerTypes[rOb]==TypePrimitive){
+                    if (curNode->registerTypes[rOb] == TypeZero) {
                         isNpeReturn= true;
                         goto Next;
                     }
@@ -862,7 +1005,7 @@ void* CodeResolver::runResolver(void *args) {
                 case invokeInterface:{
                     u1 iReg=u1(insns[pos+2]&0xf);
                     resolver->checkRegRange(iReg);
-                    if(curNode->registerTypes[iReg]==TypePrimitive){
+                    if (curNode->registerTypes[iReg] == TypeZero) {
                         isNpeReturn= true;
                         //NullPointerException;
                         goto Next;
@@ -876,7 +1019,7 @@ void* CodeResolver::runResolver(void *args) {
                 case invokeDirectR:
                 case invokeInterfaceR:{
                     resolver->checkRegRange(insns[pos+2]);
-                    if(curNode->registerTypes[insns[pos+2]]==TypePrimitive){
+                    if (curNode->registerTypes[insns[pos + 2]] == TypeZero) {
                         isNpeReturn= true;
                         //NullPointerException;
                         goto Next;
@@ -956,7 +1099,7 @@ void* CodeResolver::runResolver(void *args) {
             }
             lastPos=thisPos;
         } catch (std::exception &e) {
-            LOGE("Meet exception %s,Op=0x%x pos=0x%x preData=0x%x,clsIdx=%u,cls=%s,m=%s", e.what(),
+            LOGE("Meet exception %s,Op=0x%x pos=0x%x,clsIdx=%u,cls=%s,m=%s", e.what(),
                  opCode, pos, preData, resolver->methodId->class_idx_, clsName, methodName);
             goto EndPoint;
         }
@@ -974,9 +1117,10 @@ void* CodeResolver::runResolver(void *args) {
     //But as they may cause dex2smali tools to throw an exception, so some fixes is required.
     //For more informations, see below.
     if (checkAndReplaceOpCodes(insns, code->insns_size_in_code_units_)) {
-        LOGE("Code Fix not over yet in class %s in pos=%u ;m=%s;sig=%s;", clsName,
-             searchClassPos(clsName),
-             methodName, getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile));
+        LOGE("CodeFix is not over yet in method=%s%s;in class %s that is at No.%u classDef;",
+             methodName, &getProtoSig(resolver->methodId->proto_idx_, dexGlobal.dexFile)[0],
+             clsName,
+             searchClassPos(clsName));
         lastRange->printRange();
     }
     delete curNode;
@@ -995,19 +1139,138 @@ bool CodeResolver::checkAndReplaceOpCodes(u2 *insns, u4 insns_size) {
     for (i = opCount = 0; i < insns_size; ++opCount) {
         u1 *opPtr = (u1 *) (insns + i);
         u1 opCode = *opPtr;
-        switch (opCode) {
-            case returnVNo:
-                *opPtr = returnV;
-                i += 1;
-                continue;
-                //Most dex2smali do support Dalvik specified opCodes ,so skip them;
-                //Some dex2smali tools may generate errors like reg count does not match...,
-                //then a better way for you is to use apktools or backsmali
-                //and then replace them with appropriate ones according to the log
-                //Yeah! I can replace them by codes, but I give up finally as it's pretty troublesome
-                // and less efficient to find a appropriate method that match the regCount;
+        //verifyRegCount(insns,i);
+        if (isDalvik()) {
+            switch (opCode) {
+                case OP_RETURN_VOID_BARRIER:
+                    *opPtr = returnV;
+                    i += 1;
+                    continue;
+                case OP_INVOKE_OBJECT_INIT_RANGE:
+                    if ((insns[i] >> 8) == 0) {
+                        *opPtr = invokeDirectR;
+                    } else {
+                        insns[i] = invokeDirect | 1 << 12;
+                    }
+                    i += 3;
+                    continue;
+                case OP_THROW_VERIFICATION_ERROR: {
+                    int refType = insns[i] >> 14;
+                    std::string errMsg;
+                    switch (refType) {
+                        case VERIFY_ERROR_REF_METHOD: {
+                            auto &methodId = dexGlobal.dexFile->method_ids_[insns[i + 1]];
+                            errMsg = formMessage("method ",
+                                                 dexGlobal.dexFile->getStringByStringIndex(
+                                                         methodId.name_idx_),
+                                                 &getProtoSig(methodId.proto_idx_,
+                                                              dexGlobal.dexFile)[0], " in class:",
+                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                         methodId.class_idx_));
+
+                            break;
+                        }
+                        case VERIFY_ERROR_REF_CLASS:
+                            errMsg = formMessage("class ",
+                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                         insns[i + 1]));
+                            break;
+                        case VERIFY_ERROR_REF_FIELD: {
+                            auto &fieldId = dexGlobal.dexFile->field_ids_[insns[i + 1]];
+                            errMsg = formMessage("field ",
+                                                 dexGlobal.dexFile->getStringByStringIndex(
+                                                         fieldId.name_idx_), " of type:",
+                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                         fieldId.type_idx_), " in class:",
+                                                 dexGlobal.dexFile->getStringFromTypeIndex(
+                                                         fieldId.class_idx_));
+                            break;
+                        }
+                        default: {
+                            break;
+                        }
+
+                    }
+                    insns[i] = 0;
+                    insns[i + 1] = 0;
+                    i += 2;
+                    if (!ret) ret = true;
+                    LOGE("Still meet unhandled OP_THROW_VERIFICATION_ERROR in the final process at"
+                                 " #%d instruction,with unresolved %s", opCount, &errMsg[0]);
+                    continue;
+                }
+
+                case OP_EXECUTE_INLINE:
+                case OP_EXECUTE_INLINE_RANGE:
+                    handleExecuteInline(insns, i, opPtr);
+                    i += 3;
+                    continue;
+#define REPLACE_RAW(cur, orig)\
+                case cur:*opPtr=orig;
+
+#define REPLACE_SIMPLE(cur, orig, offset)\
+                    REPLACE_RAW(cur,orig) if(!ret){ret=true;}\
+                    LOGE("Unresolved OpCode replaced from "#cur" 0x%x to "#orig\
+                          " 0x%x with index=%u at the #%u instruction at pos=%u",cur,orig,insns[i+1],opCount,i);\
+                           i+=offset;
+
+#define REPLACE_FIELD(cur, orig) REPLACE_SIMPLE(cur,orig,2) continue;
+
+#define REPLACE_VOLATILE(cur, orig) REPLACE_RAW(cur,orig) i+=2;continue;
+
+                REPLACE_VOLATILE(OP_SGET_VOLATILE, sget)
+                REPLACE_VOLATILE(OP_SGET_OBJECT_VOLATILE, sgetOb)
+                REPLACE_VOLATILE(OP_SGET_WIDE_VOLATILE, sgetW)
+                REPLACE_VOLATILE(OP_SPUT_OBJECT_VOLATILE, sputOb)
+                REPLACE_VOLATILE(OP_SPUT_VOLATILE, sput)
+                REPLACE_VOLATILE(OP_SPUT_WIDE_VOLATILE, sputW)
+                REPLACE_FIELD(OP_IGET_OBJECT_QUICK, igetOb)
+                REPLACE_FIELD(OP_IGET_OBJECT_VOLATILE, igetOb)
+                REPLACE_FIELD(OP_IGET_QUICK, iget)
+                REPLACE_FIELD(OP_IGET_VOLATILE, iget)
+                REPLACE_FIELD(OP_IGET_WIDE_QUICK, igetW)
+                REPLACE_FIELD(OP_IGET_WIDE_VOLATILE, igetW)
+                REPLACE_FIELD(OP_IPUT_OBJECT_QUICK, iputOb)
+                REPLACE_FIELD(OP_IPUT_OBJECT_VOLATILE, iputOb)
+                REPLACE_FIELD(OP_IPUT_QUICK, iput)
+                REPLACE_FIELD(OP_IPUT_VOLATILE, iput)
+                REPLACE_FIELD(OP_IPUT_WIDE_QUICK, iputW)
+                REPLACE_FIELD(OP_IPUT_WIDE_VOLATILE, iputW)
+#define  ReplaceWithEmptyMethod\
+                    insns[i-1]=0;\
+                    insns[i-2]= (u2) globalRef.emptyMethodIndex;\
+                    continue;
+
+                REPLACE_SIMPLE(OP_INVOKE_VIRTUAL_QUICK, invokeVirtual, 3)
+                    insns[i - 3] = *opPtr | u2(1 << 12);
+                    ReplaceWithEmptyMethod;
+
+                REPLACE_SIMPLE(OP_INVOKE_SUPER_QUICK, invokeSuper, 3)
+                    insns[i - 3] = *opPtr | u2(1 << 12);
+                    ReplaceWithEmptyMethod;
+
+                REPLACE_SIMPLE(OP_INVOKE_VIRTUAL_QUICK_RANGE, invokeVirtualR, 3)
+                    insns[i - 3] = *opPtr | u2(1 << 8);
+                    ReplaceWithEmptyMethod;
+
+                REPLACE_SIMPLE(OP_INVOKE_SUPER_QUICK_RANGE, invokeSuperR, 3)
+                    insns[i - 3] = *opPtr | u2(1 << 8);
+                    ReplaceWithEmptyMethod;
+#undef REPLACE_RAW
+#undef REPLACE_FIELD
+#undef REPLACE_SIMPLE
+                default: {
+                    break;
+                };
+            }
+        } else {
+            switch (opCode) {
+                case returnVNo:
+                    *opPtr = returnV;
+                    i += 1;
+                    continue;
 #define SIMPLE_REPLACE(opCode, offset)\
-                case opCode##Q: if(!ret){ret=true;if(isDalvik()){return true;}}*opPtr=opCode; \
+                case opCode##Q: if(!ret){ret=true;}*opPtr=opCode; \
                                     LOGE("Unresolved OpCode replaced from "#opCode"Q 0x%x to "#opCode\
                                     " 0x%x with index=%u at the #%u instruction at pos=%u",opCode##Q,opCode,insns[i+1],opCount,i);\
                                     i+=offset;
@@ -1015,45 +1278,49 @@ bool CodeResolver::checkAndReplaceOpCodes(u2 *insns, u4 insns_size) {
 #define SIMPLE_REPLACE_FIELD(opCode) SIMPLE_REPLACE(opCode,2)\
                     continue;
 
-            SIMPLE_REPLACE_FIELD(iget)
+                SIMPLE_REPLACE_FIELD(iget)
 
-            SIMPLE_REPLACE_FIELD(igetW)
-            SIMPLE_REPLACE_FIELD(igetOb)
-            SIMPLE_REPLACE_FIELD(iput)
-            SIMPLE_REPLACE_FIELD(iputW)
-            SIMPLE_REPLACE_FIELD(iputOb)
+                SIMPLE_REPLACE_FIELD(igetW)
+                SIMPLE_REPLACE_FIELD(igetOb)
+                SIMPLE_REPLACE_FIELD(iput)
+                SIMPLE_REPLACE_FIELD(iputW)
+                SIMPLE_REPLACE_FIELD(iputOb)
 
-            SIMPLE_REPLACE(invokeVirtual, 3)
-                continue;
+                SIMPLE_REPLACE(invokeVirtual, 3)
+                    insns[i - 3] = *opPtr | u2(1 << 12);
+                    ReplaceWithEmptyMethod;
 
-            SIMPLE_REPLACE(invokeVirtualR, 3)
-                continue;
+                SIMPLE_REPLACE(invokeVirtualR, 3)
+                    insns[i - 3] = *opPtr | u2(1 << 8);
+                    ReplaceWithEmptyMethod;
 
-            SIMPLE_REPLACE_FIELD(iputBoolean)
-            SIMPLE_REPLACE_FIELD(iputByte)
-            SIMPLE_REPLACE_FIELD(iputChar)
-            SIMPLE_REPLACE_FIELD(iputShort)
+                SIMPLE_REPLACE_FIELD(iputBoolean)
+                SIMPLE_REPLACE_FIELD(iputByte)
+                SIMPLE_REPLACE_FIELD(iputChar)
+                SIMPLE_REPLACE_FIELD(iputShort)
 
-            SIMPLE_REPLACE_FIELD(igetBoolean)
-            SIMPLE_REPLACE_FIELD(igetByte)
-            SIMPLE_REPLACE_FIELD(igetChar)
-            SIMPLE_REPLACE_FIELD(igetShort)
+                SIMPLE_REPLACE_FIELD(igetBoolean)
+                SIMPLE_REPLACE_FIELD(igetByte)
+                SIMPLE_REPLACE_FIELD(igetChar)
+                SIMPLE_REPLACE_FIELD(igetShort)
 
 #undef SIMPLE_REPLACE
 #undef SIMPLE_REPLACE_FIELD
-            case 0xf3:
-            case 0xf5:
-            case 0xf6:
-            case 0xf7:
-            case 0xf8:
-            case 0xf9: {
-                i += 2;
-                continue;
-            }
-            default: {
-                break;
+                case 0xf3:
+                case 0xf5:
+                case 0xf6:
+                case 0xf7:
+                case 0xf8:
+                case 0xf9: {
+                    i += 2;
+                    continue;
+                }
+                default: {
+                    break;
+                }
             }
         }
+
 
         if ((opCode > 0x3e && opCode <= 0x43) || (opCode >= 0x79 && opCode <= 0x7a) ||
             (opCode >= 0xef && opCode <= 0xff)/*unused code*/)
@@ -1211,11 +1478,10 @@ void CodeResolver::alterField(const CodeResolver::JumpNode *curNode,
 
 void CodeResolver::changeIdx( u2 *insns, u4 pos, u4 Idx) const {
     if(Idx == UNDEFINED){
-        char *sig = getProtoSig(methodId->proto_idx_, dexGlobal.dexFile);
-        LOGW("Unable to find index at pos%u;class=%s,method=%s%s",pos,
+        LOGW("Unable to find index at pos%u;class=%s,method=%s%s", pos,
              dexGlobal.dexFile->getStringFromTypeIndex(methodId->class_idx_),
-             dexGlobal.dexFile->getStringByStringIndex(methodId->name_idx_),sig);
-        delete[] sig;
+             dexGlobal.dexFile->getStringByStringIndex(methodId->name_idx_),
+             &getProtoSig(methodId->proto_idx_, dexGlobal.dexFile)[0]);
     }else insns[pos+1]= (u2) Idx;
 }
 
@@ -1270,8 +1536,21 @@ bool CodeResolver::pend() {
                 }
             }
         }
+        for (u4 i = 0, N = dexGlobal.dexFile->header_->method_ids_size_; i < N; ++i) {
+            auto &methodId = dexGlobal.dexFile->method_ids_[i];
+            auto &protoId = dexGlobal.dexFile->proto_ids_[methodId.proto_idx_];
+            const char *methodName = dexGlobal.dexFile->getStringByStringIndex(methodId.name_idx_);
+            if (protoId.parameters_off_ == 0 && methodName[0] != '<') { ;
+                LOGV("meet empty method,id=%d method=%s%s in class=%s", i, methodName,
+                     &getProtoSig(methodId.proto_idx_, dexGlobal.dexFile)[0],
+                     dexGlobal.dexFile->getStringFromTypeIndex(methodId.class_idx_));
+                globalRef.emptyMethodIndex = i;
+                break;
+            }
+        }
         LOGV("meet str type idx=%d", globalRef.strTypeIdx);
         LOGV("meet class type idx=%d", globalRef.clsTypeIdx);
+
     }
     dexGlobal.initPoolIfNeeded(runResolver,threadInit,threadDestroy);
     dexGlobal.pool->submit(this);
@@ -1382,9 +1661,29 @@ void CodeResolver::initRegisters(u4* registers) {
     }
 }
 
+void CodeResolver::handleExecuteInline(u2 insns[], u4 pos, u1 *ins) {
+    u2 idx = insns[pos + 1];
+    if (idx >= InlineOpsTableSize) {
+        throw std::runtime_error(formMessage("ExecuteIdx out of range:", idx));
+    }
+    if (idx >= InlineVirtualStart && idx <= InlineVirtualEnd) {
+        *ins = *ins == OP_EXECUTE_INLINE ? invokeVirtual : invokeVirtualR;
+    } else *ins = *ins == OP_EXECUTE_INLINE ? invokeStatic : invokeStaticR;
+    InlineMethod &inlineMethod = InlineOpsTable[idx];
+    if (inlineMethod.methodIdx == UNDEFINED) {
+        inlineMethod.methodIdx = binarySearchMethod(
+                inlineMethod.classDescriptor, inlineMethod.methodName,
+                inlineMethod.retType, inlineMethod.parSig);
+    }
+    insns[pos + 1] = (u2) inlineMethod.methodIdx;
+}
 u4 CodeResolver::getVMethodFromIndex(u4 classIdx, u4 vIdx) {
     if (classIdx == TypeException) {
         LOGW("Unexpected type TypeException,as catch all has no type specified");
+        return UNDEFINED;
+    }
+    if (classIdx == UNDEFINED) {
+        LOGW("Class Undef");
         return UNDEFINED;
     }
     //if(isLog)LOGV("Vmethod classIdx=%u,vIdx=%x",classIdx,vIdx);

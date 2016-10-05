@@ -52,6 +52,8 @@ public:
 private:
     enum RegisterType{
         TypeArray=0xffff+1,
+        TypePrimitiveExtend = UNDEFINED - 4,
+        TypeZero = UNDEFINED - 3,
         TypeException = UNDEFINED - 2,
         TypePrimitive = UNDEFINED - 1,
     };
@@ -435,6 +437,9 @@ private:
     static void* runResolver(void* args);
     static void threadDestroy();
 
+    static void handleExecuteInline(u2 insns[], u4 pos, u1 *ins);
+
+    static void verifyRegCount(u2 insns[], u4 pos);
     static bool forkNode(const art::DexFile::CodeItem *code, JumpNode *curNode, Range *lastRAnge,
                          Range *nextRange, u4 lastPos, u4 newPos);
 
