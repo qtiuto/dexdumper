@@ -39,7 +39,7 @@
  * in the library, so code that links against us will work whether or not
  * it was built with optimizations enabled.
  */
-#include "../globals.h"
+#include "../support/globals.h"
 #include "assert.h"
 #include <stdio.h>
 namespace dalvik{
@@ -571,6 +571,8 @@ namespace dalvik{
         return dexGetStringData(pDexFile, pStringId);
     }
 
+
+
 /* Return the UTF-8 encoded string with the specified string_id index,
  * also filling in the UTF-16 size (number of 16-bit code points).*/
     const char* dexStringAndSizeById(const DexFile* pDexFile, u4 idx,
@@ -590,7 +592,6 @@ namespace dalvik{
         const DexTypeId* typeId = dexGetTypeId(pDexFile, idx);
         return dexStringById(pDexFile, typeId->descriptorIdx);
     }
-
 /* return the MethodId with the specified index */
     DEX_INLINE const DexMethodId* dexGetMethodId(const DexFile* pDexFile, u4 idx) {
         assert(idx < pDexFile->pHeader->methodIdsSize);

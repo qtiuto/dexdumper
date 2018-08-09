@@ -4,6 +4,7 @@ import android.util.SparseArray;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
@@ -27,8 +28,6 @@ public final class ClassTools {
 
     private static native int getMethodVIdx(Method method);
 
-    private static native byte[][] getVMethodsNative(Member reflectTarget, boolean isField);//getDeclaredMethods is not reliable and stable,
-    // Maybe a custom designed method is required, not implemented now
 
     static void init(ClassLoader loader) {
         ClassTools.loader = loader;
@@ -51,6 +50,32 @@ public final class ClassTools {
             // true may block thread
         } catch (Throwable e) {
             Utils.log(e.getMessage());
+        }
+        return null;
+    }
+
+    private static Member findFirstInit(String className){
+        Member member= getMember(className);
+        if(member==null)Utils.log("Got member failed for"+className);
+        return member;
+    }
+
+    private static Member getMember(String className) {
+        Class clazz = findClass(className);
+        if(clazz==null) return null;
+        if(clazz.isArray())
+            clazz=Object.class;
+        try {
+            Constructor[] constructors= clazz.getDeclaredConstructors();
+            if(constructors.length!=0)
+                return constructors[0];
+        }catch (Throwable ignored){
+        }
+        try {
+            Member[] methods= clazz.getDeclaredMethods();
+            if(methods.length!=0)
+                return methods[0];
+        }catch (Throwable ignored){
         }
         return null;
     }
@@ -195,7 +220,12 @@ public final class ClassTools {
         ArrayList<Field> list = getAllInstanceFieldsNotCall(cls, null, false);
         SparseArray<Field> fieldOffsetArr=new SparseArray<>();
         for(Field field:list){
-            fieldOffsetArr.put(getFieldOffset(field),field);//super class offset must be less.
+            int fieldOffset = getFieldOffset(field);
+            if(fieldOffset==Integer.MAX_VALUE) {
+               Utils.logE(field +"can't be converted");
+                continue;
+            }
+            fieldOffsetArr.put(fieldOffset,field);//super class offset must be less.
         }
         return fieldOffsetArr;
     }
@@ -224,7 +254,12 @@ public final class ClassTools {
         ArrayList<Method> list = getAllVMethodsNotCall(cls, null);
         SparseArray<Method> vIdxArr=new SparseArray<>();
         for(Method method:list){
-            vIdxArr.put(getMethodVIdx(method),method);
+            int methodVIdx = getMethodVIdx(method);
+            if(methodVIdx==Integer.MAX_VALUE){
+                Utils.logE(method+" can't be converted!");
+                continue;
+            }
+            vIdxArr.put(methodVIdx,method);
         }
         return vIdxArr;
     }

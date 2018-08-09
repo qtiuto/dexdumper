@@ -2,8 +2,10 @@
 // Created by asus on 2016/8/16.
 //
 
+#include <cstring>
+#include <algorithm>
 #include "Tools.h"
-
+#include "utf-inl.h"
 std::string getProtoSig(const u4 index, const art::DexFile *dexFile) {
     using namespace art;
     std::string protoType("(");
@@ -13,8 +15,8 @@ std::string getProtoSig(const u4 index, const art::DexFile *dexFile) {
     auto &protoId = dexFile->proto_ids_[index];
     getProtoString(protoId,dexFile, protoType);
     protoType+=")";
-    const char* protoString=dexFile->getStringFromTypeIndex(protoId.return_type_idx_);
-    protoType+=protoString;
+    const char* retType= dexFile->stringFromType(protoId.return_type_idx_);
+    protoType+=retType;
     return protoType;
 }
 
@@ -25,76 +27,141 @@ void getProtoString(const art::DexFile::ProtoId &protoId, const art::DexFile *de
         int size=list->Size();
         for(u4 i=0;i<size;++i){
             const art::DexFile::TypeItem &item=list->GetTypeItem(i);
-            protoType+=dexFile->getStringFromTypeIndex(item.type_idx_);
+            protoType+= dexFile->stringFromType(item.type_idx_);
         };
     }
 }
+std::string formatMethod(const art::DexFile::MethodId& methodId, const art::DexFile* dexFile){
+    return formMessage(dexFile->stringFromType(methodId.class_idx_),"->", dexFile->stringByIndex(methodId.name_idx_),
+                getProtoSig(methodId.proto_idx_, dexFile));
+}
+
 void logMethod(const art::DexFile::MethodId& methodId, const art::DexFile* dexFile){
-    LOGW("Log method class=%s method=%s%s", dexFile->getStringFromTypeIndex(methodId.class_idx_),
-         dexFile->getStringByStringIndex(methodId.name_idx_),
+    LOGW("Log method :%s->%s%s", dexFile->stringFromType(methodId.class_idx_),
+         dexFile->stringByIndex(methodId.name_idx_),
          getProtoSig(methodId.proto_idx_, dexFile).c_str());
 }
+class UTFDataFormatException :public std::runtime_error{
+public:
+    UTFDataFormatException(const char * msg) : runtime_error(msg){ }
+};
 
-char *toJavaClassName(const char *clsChars) {
+
+JavaString toJavaClassName(const char *clsChars) {
     bool notArray = clsChars[0] != '[';
-    int len = (int) (strlen(clsChars));
+    size_t len = strlen(clsChars);
     if (notArray) --len;
     else ++len;
-    char *fixedClssName=new char[len];
+    char fixedClssName[len];
     memcpy(fixedClssName, clsChars + notArray, (size_t) len);
     fixedClssName[len-1]='\0';
-    while (*fixedClssName!='\0'){
-        if(*fixedClssName=='/')
-            *fixedClssName='.';
-        ++fixedClssName;
+    for(char& ch:fixedClssName){
+        if(ch=='/') ch='.';
     }
-    fixedClssName-=(len-1);
-    return fixedClssName;
+    JavaString ret(fixedClssName,len-1);
+    return ret;
 }
-
-u2 dexGetUtf16FromUtf8(const char **pUtf8Ptr) {
-    unsigned int one, two, three;
-
-    one = *(*pUtf8Ptr)++;
-    if ((one & 0x80) != 0) {
-        /* two- or three-byte encoding */
-        two = *(*pUtf8Ptr)++;
-        if ((one & 0x20) != 0) {
-            /* three-byte encoding */
-            three = *(*pUtf8Ptr)++;
-            return (u2) (((one & 0x0f) << 12) |
-                         ((two & 0x3f) << 6) |
-                         (three & 0x3f));
+std::string MangleForJni(const std::string& s) {
+    std::string result;
+    size_t char_count = CountModifiedUtf8Chars(s.c_str());
+    const char* cp = &s[0];
+    for (size_t i = 0; i < char_count; ++i) {
+        uint32_t ch = GetUtf16FromUtf8(&cp);
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
+            result.push_back(ch);
+        } else if (ch == '.' || ch == '/') {
+            result += "_";
+        } else if (ch == '_') {
+            result += "_1";
+        } else if (ch == ';') {
+            result += "_2";
+        } else if (ch == '[') {
+            result += "_3";
         } else {
-            /* two-byte encoding */
-            return (u2) (((one & 0x1f) << 6) |
-                         (two & 0x3f));
+            const uint16_t leading = GetLeadingUtf16Char(ch);
+            const uint32_t trailing = GetTrailingUtf16Char(ch);
+
+            char out[7]={0};
+            sprintf(out,"_0%04x",leading);
+            result.append(out,6);
+            if (trailing != 0) {
+                sprintf(out,"_0%04x",trailing);
+                result.append(out,6);
+            }
         }
-    } else {
-        /* one-byte encoding */
-        return (u2) one;
     }
+    return result;
 }
 
-int dexUtf8Cmp(const char *s1, const char *s2) {
-    for (; ;) {
-        if (*s1 == '\0') {
-            if (*s2 == '\0') {
-                return 0;
-            }
-            return -1;
-        } else if (*s2 == '\0') {
-            return 1;
-        }
+std::string DotToDescriptor(const char* class_name) {
+    std::string descriptor(class_name);
+    std::replace(descriptor.begin(), descriptor.end(), '.', '/');
+    if (descriptor.length() > 0 && descriptor[0] != '[') {
+        descriptor = "L" + descriptor + ";";
+    }
+    return descriptor;
+}
 
-        int utf1 = dexGetUtf16FromUtf8(&s1);
-        int utf2 = dexGetUtf16FromUtf8(&s2);
-        int diff = utf1 - utf2;
-
-        if (diff != 0) {
-            return diff;
+std::string DescriptorToDot(const char* descriptor) {
+    size_t length = strlen(descriptor);
+    if (length > 1) {
+        if (descriptor[0] == 'L' && descriptor[length - 1] == ';') {
+            // Descriptors have the leading 'L' and trailing ';' stripped.
+            std::string result(descriptor + 1, length - 2);
+            std::replace(result.begin(), result.end(), '/', '.');
+            return result;
+        } else {
+            // For arrays the 'L' and ';' remain intact.
+            std::string result(descriptor);
+            std::replace(result.begin(), result.end(), '/', '.');
+            return result;
         }
     }
+    // Do nothing for non-class/array descriptors.
+    return descriptor;
+}
+
+std::string DescriptorToName(const char* descriptor) {
+    size_t length = strlen(descriptor);
+    if (descriptor[0] == 'L' && descriptor[length - 1] == ';') {
+        std::string result(descriptor + 1, length - 2);
+        return result;
+    }
+    return descriptor;
+}
+
+std::string JniShortName(const char* className,const char* methodName) {
+    std::string class_name(className);
+    // Remove the leading 'L' and trailing ';'...
+
+    class_name.erase(0, 1);
+    class_name.erase(class_name.size() - 1, 1);
+
+    std::string method_name(methodName);
+
+    std::string short_name;
+    short_name += "Java_";
+    short_name += MangleForJni(class_name);
+    short_name += "_";
+    short_name += MangleForJni(method_name);
+    return short_name;
+}
+
+std::string JniLongName(std::string& shortName,char* sig){
+    std::string long_name;
+    long_name +=shortName;
+    long_name += "__";
+    std::string signature(sig);
+    signature.erase(0, 1);
+    signature.erase(signature.begin() + signature.find(')'), signature.end());
+
+    long_name += MangleForJni(signature);
+
+    return long_name;
+}
+
+ALWAYS_INLINE int dexUtf8Cmp(const char *s1, const char *s2) {
+    return CompareModifiedUtf8ToModifiedUtf8AsUtf16CodePointValues(s1,s2);
 }
 
 

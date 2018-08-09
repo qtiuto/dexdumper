@@ -6,10 +6,10 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "jni.h"
-#include "dex_file.h"
-#include "art-member.h"
+#include "support/dex_file.h"
+#include "support/art-member.h"
 #include "DexCommons.h"
-#include "DexCacheFile.h"
+#include "util/DexCacheFile.h"
 
 #ifndef _Included_com_oslorde_extra_DexDumper
 #define _Included_com_oslorde_extra_DexDumper
@@ -17,12 +17,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV21(JNIEnv *env,jclass thisClass,jlong dex_vector_address,jstring outDir,jboolean isMr1);
-JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV23(JNIEnv *env,jclass thisClass,jlongArray dex_files_address,jstring outDir,jboolean isNougat);
-JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV19ForArt(JNIEnv *env,jclass thisClass,jlong cookie,jstring outDir);
-JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_dumpDexV16(JNIEnv *env, jclass thisClass,
-                                                                    jlong cookie, jstring outDir);
-JNIEXPORT  void JNICALL Java_com_oslorde_extra_DexDumper_setMode(JNIEnv *env,jclass thisClass,jint mode);
+JNIEXPORT  void JNICALL dumpDexV21(JNIEnv *env, jclass thisClass, jlong dex_vector_address,
+                                   jstring outDir);
+JNIEXPORT  void JNICALL dumpDexV23(JNIEnv *env, jclass thisClass, jlongArray dex_files_address,
+                                   jstring outDir);
+JNIEXPORT  void JNICALL dumpDexV19ForArt(JNIEnv *env, jclass thisClass, jlong cookie,
+                                         jstring outDir);
+JNIEXPORT  void JNICALL dumpDexV16(JNIEnv *env, jclass thisClass,
+                                   jlong cookie, jstring outDir);
+JNIEXPORT  void JNICALL setMode(JNIEnv *env, jclass thisClass, jint mode);
 #ifdef __cplusplus
 }
  enum DexDataType{

@@ -8,7 +8,6 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.TextUtils;
 
 import com.oslorde.dexdumper.BuildConfig;
 
@@ -21,7 +20,10 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.IdentityHashMap;
+import java.util.concurrent.FutureTask;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -34,26 +36,41 @@ public class DexDumper {
     private static final String ABI_ARMV7_MIRROR="armeabi-v7a";
     private static final String ABI_ARM64="arm64";
     private static final String ABI_ARM64_MIRROR="arm64-v8a";
+    private static final int MAX_SDK=25;
 
     private static final int DEX_FILE_START;
-    private static String sStorePath=Environment.getExternalStorageDirectory().getPath()+"/DexDump";
+    private static String sStorePath=Environment.getExternalStorageDirectory().getPath()+"/DexDump/";
 
     static {
-        if(Build.VERSION.SDK_INT>=24){
+        if(Build.VERSION.SDK_INT>=25){
             DEX_FILE_START=1;
         }else DEX_FILE_START=0;
 
     }
 
-    private static native void dumpDexV21(long dex_vector,String outDir,boolean isMr1);
+    private static native void dumpDexV21(long dex_vector,String outDir);
 
-    private static native void dumpDexV23(long[] dex_arr,String outDir,boolean isNougat);
+    private static native void dumpDexV23(long[] dex_arr,String outDir);
 
     private static native void dumpDexV16(long cookie, String outDir);
 
     private static native void dumpDexV19ForArt(long cookie,String outDir);
 
     private static native void setMode(int mode);
+
+    /**
+     *For now, multi-delegated classloader is unresolved.
+     * @param loader the lowest level classloader, despite hot patch.
+     * @param storePath the path where the dexFile will be store. and the path will be clear before dump.
+     *                  If null the value passed by last call will be used,
+     * @param mode the mode to dump dex,if null the default mode {@code MODE_LOOSE} will be used, the strictest mode is the most time-consuming;
+     * @return whether the loader is able to be extract,.
+     */
+
+    public static boolean dumpDex(BaseDexClassLoader loader, String storePath,int mode){
+        File libDir=new File(Environment.getDataDirectory()+"/data/"+getPackageName()+"/libs/");
+        return dumpDex(loader,storePath,null,libDir,null,mode);
+    }
 
     /**
      *For now, multi-delegated classloader is unresolved.
@@ -69,6 +86,10 @@ public class DexDumper {
      */
     @SuppressLint("UnsafeDynamicallyLoadedCode")
     public static boolean dumpDex(BaseDexClassLoader loader, String storePath,File libSrc, File libDir,String libName,int mode){
+        if(Build.VERSION.SDK_INT>MAX_SDK){
+            throw new UnsupportedOperationException("SDK Larger than the max sdk:"+MAX_SDK);
+        }
+
         if( Looper.getMainLooper().getThread()==Thread.currentThread()){
             throw new DexDumpException("As the operation is time-consuming,don't run it in main thread");
         }
@@ -92,32 +113,12 @@ public class DexDumper {
 
         if(libSrc==null){
             Application application=getApplication();
-            String sourceApk="";
             try {
-                Runtime.getRuntime().exec("logcat -c");
                 ApplicationInfo info=application.getApplicationInfo();
-                String abi=info.nativeLibraryDir;
-                Utils.log("Abi=" + abi);
-                Utils.log(info.packageName);
-                if (info.dataDir.equals(abi) || TextUtils.isEmpty(abi) || abi.endsWith("lib") || new File(abi).getName().startsWith(info.packageName)) {
-                    abi=getFirstSupportedAbi();
-                }else {
-                    abi=abi.substring(abi.lastIndexOf('/')+1);
-                    switch (abi){
-                        case ABI_ARM:
-                            if(getFirstSupportedAbi().equals(ABI_ARM_MIRROR)){
-                                abi=ABI_ARM_MIRROR;
-                            }else abi=ABI_ARMV7_MIRROR;
-                            break;
-                        case ABI_ARM64:abi=ABI_ARM64_MIRROR;break;
-                        default:break;
-                    }
-                }
-                Context context=application.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_RESTRICTED);
-                sourceApk=context.getApplicationInfo().sourceDir;
-                ZipFile zipFile=new ZipFile(sourceApk);
-                Utils.log("LoadingLib=" + abi + "/libdex_dump.so");
-                ZipEntry entry=zipFile.getEntry("lib/"+abi+"/libdex_dump.so");
+                Context context=application.createPackageContext(BuildConfig.APPLICATION_ID, 0);
+                ZipFile zipFile=new ZipFile(context.getApplicationInfo().sourceDir);
+                //Utils.log("LoadingLib=" + abi + "/libdex_dump.so");
+                ZipEntry entry=zipFile.getEntry("lib/"+Build.CPU_ABI+"/libdex_dump.so");
                 InputStream stream=zipFile.getInputStream(entry);
                 byte[] bytes=new byte[1024];int read;
                 FileOutputStream out=new FileOutputStream(libDst);
@@ -125,6 +126,7 @@ public class DexDumper {
                     out.write(bytes,0,read);
                 }
                 stream.close();out.close();
+                zipFile.close();
             } catch (Exception e) {
                 throw new DexDumpException("Failed to fetch lib from source apk",e);
             }
@@ -135,49 +137,53 @@ public class DexDumper {
             System.load(libDst.getAbsolutePath());
         }catch (Throwable e){
             Utils.log(e);
-            throw new DexDumpException("Failed to load libirary",e);
+            throw new DexDumpException("Failed to load library",e);
         }
-        if(storePath==null) storePath=sStorePath;
+
+        MyLog.enableRemoteLog(false);
+        if(storePath==null) storePath=sStorePath+getPackageName();
         if(storePath.charAt(storePath.length()-1)=='/'){
             storePath=storePath.substring(0,storePath.length()-1);
         }
-        if(resetStorePath(storePath)){
-            sStorePath=storePath;
-            try {
-                return dumpDexImpl(loader, mode);
-            } catch (Exception e) {
-                throw new DexDumpException(e);
-            }
-        }else throw new DexDumpException("The store path can't be cleaned");
+        resetStorePath(storePath);
+        sStorePath=storePath;
+        MyLog.sendConfig("storePath",sStorePath);
+        try {
+            return dumpDexImpl(loader, mode);
+        } catch (Throwable e) {
+            throw new DexDumpException(e);
+        }
     }
+
+
 
     private static String getFirstSupportedAbi() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             return Build.SUPPORTED_ABIS[0];
         }else return Build.CPU_ABI;
     }
-
-    /**
-     *For now, multi-delegated classloader is unresolved.
-     * @param loader the lowest level classloader, despite hot patch.
-     * @param storePath the path where the dexFile will be store. and the path will be clear before dump.
-     *                  If null the value passed by last call will be used,
-     * @param mode the mode to dump dex,if null the default mode {@code MODE_LOOSE} will be used, the strictest mode is the most time-consuming;
-     * @return whether the loader is able to be extract,.
-     */
-
-    public static boolean dumpDex(BaseDexClassLoader loader, String storePath,int mode){
-        File libDir=new File(Environment.getDataDirectory()+"/data/"+getPackageName()+"/libs/");
-        return dumpDex(loader,storePath,null,libDir,null,mode);
+    private static boolean isEmpty(Object[] arr){
+        return arr==null||arr.length==0;
     }
 
-    private static boolean resetStorePath(String storePath){
+    private static void resetStorePath(String storePath){
         File file=new File(storePath);
-        return (!file.exists()||Utils.rDelete(file))&&file.mkdirs();
+        if(file.exists()&&!isEmpty(file.listFiles())&&!Utils.rDelete(file)){
+            throw new DexDumpException("The store path can't be cleaned");
+        }
+        if(!file.exists()&&!file.mkdirs()){
+            throw new DexDumpException("Create store dir failed,check app io permission or io occupation.");
+        }
     }
 
     private static String getPackageName(){
         try {
+            /*String cacheDir=System.getProperty("java.io.tmpdir", ".");
+            int end=cacheDir.lastIndexOf('/');
+            int start=cacheDir.lastIndexOf('/',end)+1;
+            String pkName=cacheDir.substring(start,end);
+            return pkName;*/
+
             return getApplication().getPackageName();
         } catch (Exception e) {
             e.printStackTrace();
@@ -210,7 +216,7 @@ public class DexDumper {
                 application = (Application) CurrentApplication.invoke(null);
             }
             return application;
-        } catch (Exception e) {
+        } catch (Throwable e) {
             throw new DexDumpException("Failed to Find Application", e);
         }
     }
@@ -219,16 +225,16 @@ public class DexDumper {
      * @param loader the lowest level classloader, despite hot patch.
      * @return whether the loader is able to be extract.
      */
-    private static boolean dumpDexImpl(ClassLoader loader, int mode) throws Exception {
+    private static boolean dumpDexImpl(ClassLoader loader, int mode) throws Throwable {
         int sdkVer= Build.VERSION.SDK_INT;
         ClassTools.init(loader);
         setMode(mode);
         java.lang.Process logP = null;
-        try {
-            logP = Runtime.getRuntime().exec("logcat -v long -f " + sStorePath + "/log.txt -s Oslorde_DexDump");
+        /*try {
+            logP = Runtime.getRuntime().exec("logcat -v thread -f " + sStorePath + "/log.txt -s Oslorde_DexDump");
         } catch (Exception e) {
             Utils.log("Logcat Failed");
-        }
+        }*/
         StringBuilder builder = new StringBuilder();
         builder.append("SDK_VER=").append(Build.VERSION.SDK_INT).append('\n');
         builder.append("Brand=").append(Build.BRAND).append('\n');
@@ -298,22 +304,6 @@ public class DexDumper {
                     Utils.log("loader path" + i + " :" + dexName);
                     FileOutputStream out;
                     File file;
-                    //necessary?
-                    /*Enumeration<String> classes=dexFile.entries();
-                    file=new File(sStorePath,"Classes.txt");
-                    out = new FileOutputStream(file,true);
-                    out.write(("-----"+dexName+"-----\n").getBytes());
-                    while (classes.hasMoreElements()){
-                        String clsName=classes.nextElement();
-                        try {
-                            //loader.loadClass(clsName);
-                            out.write(clsName.getBytes());
-                            //out.write('\n');
-                        }catch (Throwable ignored){
-                            Utils.log(clsName+" not found");
-                        }
-                    }
-                    out.close();*/
                     //TODO:before art encrypted dexFile may be loaded directly by custom
                     //TODO:classLoader you can changed the code to get the cookie by yourself
                     field = ReflectUtils.findField(DexFile.class, "mCookie");
@@ -358,10 +348,10 @@ public class DexDumper {
                             Number address = (Number) Array.get(mCookie, j);
                             dex_files[j - DEX_FILE_START] = address.longValue();
                         }
-                        dumpDexV23(dex_files, dexDir, sdkVer == 24);
+                        dumpDexV23(dex_files, dexDir);
                     } else if (mCookie instanceof Number) {//sdk 21-22
                         if (sdkVer >= 21) {
-                            dumpDexV21(((Number) mCookie).longValue(), dexDir, sdkVer == 22);
+                            dumpDexV21(((Number) mCookie).longValue(), dexDir);
                         } else if (sdkVer >= 19 && isArtInUse()) {
                             dumpDexV19ForArt(((Number) mCookie).longValue(), dexDir);
                         } else {
@@ -374,13 +364,8 @@ public class DexDumper {
                 //reverse order, but no other influence.
                 loader = loader.getParent();
             } while (!loaders.containsKey(loader));
-        } catch (Throwable e) {
-            throw e;
         } finally {
             ClassTools.clear();
-            if (logP != null) {
-                logP.destroy();
-            }
         }
 
 

@@ -1,51 +1,44 @@
-apply plugin: 'com.android.model.application'
-model{
-    android {
-        compileSdkVersion 23
-        buildToolsVersion "23.0.3"
+apply plugin: 'com.android.application'
 
-        defaultConfig {
-            applicationId "com.oslorde.dexdumper"
-            minSdkVersion.apiLevel 16
-            targetSdkVersion.apiLevel 23
-            versionCode 1
-            versionName "1.0"
+android {
+    compileSdkVersion 25
 
-
-        }
-        ndk {
-            moduleName "dex_dump"
-            stl "c++_static"
-            ldLibs.add("log")
-            ldLibs.add("dl")
-            ldLibs.add("atomic")
-            abiFilters.add("armeabi")
-            abiFilters.add("armeabi-v7a")
-            abiFilters.add("x86")
-            abiFilters.add("x86_64")
-            abiFilters.add("arm64-v8a")
-            abiFilters.add("mips")
-            abiFilters.add("mips64")
-            cppFlags.add("-std=c++11")
-            cppFlags.add("-fexceptions")
-            cppFlags.add("-g3")
-        }
-        buildTypes {
-            release {
-                ndk{
-                    cppFlags.add("-D RELEASE=true")
-                }
-                minifyEnabled false
-                proguardFiles.add(file('proguard-rules.pro'))
+    defaultConfig {
+        applicationId "com.oslorde.dexdumper"
+        minSdkVersion 16
+        versionCode 1
+        versionName "1.0"
+        externalNativeBuild {
+            cmake {
+                //arguments 'NDK_APPLICATION_MK:=./src/main/jni/Application.mk'
+                arguments "-DANDROID_STL=c++_static","-DANDROID_TOOLCHAIN=gcc"//gnu stl may have wrong size of string 4 instead of 12 in 32 bit and 24 at 64 bit
+                //-finstrument-functions -rdynamic
+                cppFlags '-std=c++11 -frtti -fexceptions'
+                abiFilters "arm64-v8a","armeabi-v7a","x86","x86_64"
             }
-            debug {
-                debuggable true
-            }
+        }
+    }
+    externalNativeBuild {
+       cmake {
+            path "/src/main/jni/CMakeLists.txt"
+        }
+         /*ndkBuild{
+            path './src/main/jni/Android.mk'
+        }*/
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles.add(file('proguard-rules.pro'))
+        }
+        debug {
+            debuggable true
         }
     }
 }
 
+
 dependencies {
-    compile fileTree(include: ['*.jar'], dir: 'libs')
-    testCompile 'junit:junit:4.12'
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    testImplementation 'junit:junit:4.12'
 }

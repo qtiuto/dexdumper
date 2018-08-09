@@ -22,7 +22,6 @@
 #define DALVIK_OO_OBJECT_H_
 
 #include <stddef.h>
-#include "../jni.h"
 #include "Dex.h"
 namespace        dalvik{
     /* fwd decl */

@@ -3,10 +3,12 @@
 //
 #include "Tools.h"
 #include "base/macros.h"
-#include "FixedThreadPool.h"
+#include "util/FixedThreadPool.h"
+#include "DexSeeker.h"
 #include <fcntl.h>
 #include <cstdlib>
 #include <sys/syscall.h>
+#include <assert.h>
 
 #ifndef HOOKMANAGER_COMMONS_H
 #define HOOKMANAGER_COMMONS_H
@@ -14,7 +16,9 @@
 #define PACKED_SWITCH 1
 #define SPARSE_SWITCH 2
 #define FILL_ARRAY_DATA 3
-
+enum {
+    UNDEFINED = 0xffffffff,
+};
 enum DumpMode{
     MODE_LOOSE=0x0,
     MODE_DIRECT=0x1,
@@ -67,21 +71,35 @@ struct __attribute__ ((packed)) CodeItemSect:public DataSection{
 struct DexGlobal{
 private:
     jclass toolsClass;
+    jmethodID firstInitId;
     jmethodID getMethodId;
     jmethodID getFieldId;
 public:
-    u1 poolSize=2;
+    u1 poolSize=1;
     u1 dumpMode;
     u2 sdkOpt;
     FixedThreadPool* pool= nullptr;
+    DexSeeker* dexSeeker= nullptr;
     char* dexFileName;
     const art::DexFile* dexFile;
 
+
     void initPoolIfNeeded(void* (* run_)(void* args),
                           void (*onInit_)()= nullptr, void (*onDestroy_)()= nullptr){
-        if(pool== nullptr)
+        if(pool== nullptr){
             pool=new FixedThreadPool(poolSize,200,run_,onInit_,onDestroy_);
+            setupDexSeeker();
+        }
+
     }
+
+     void setupDexSeeker() {
+        if(dexSeeker!= nullptr){
+            delete dexSeeker;
+        }
+        dexSeeker =new DexSeeker;
+    }
+
     //only set once to cross native thread boundary.
     void setToolsClass(JNIEnv* env){
         if(toolsClass== nullptr){
@@ -90,63 +108,65 @@ public:
                                                 "(Ljava/lang/String;I)[B");
             getMethodId = env->GetStaticMethodID(tools, "getMethodFromIndex",
                                                  "(Ljava/lang/String;I)[B");
+            firstInitId=env->GetStaticMethodID(tools, "findFirstInit", "(Ljava/lang/String;)Ljava/lang/reflect/Member;");
             toolsClass= (jclass) env->NewGlobalRef(tools);
             env->DeleteLocalRef(tools);
         }
     }
 
-    inline bool isThrowToJava() {
-        return (dumpMode & MODE_THROW_TO_JAVA) == 0;
+    bool isThrowToJava() {
+        return (dumpMode & MODE_THROW_TO_JAVA) != 0;
     }
 
-    const inline jclass getToolsClass() {
+    const jclass getToolsClass() {
         return toolsClass;
     }
 
-    const inline jmethodID getGetMethodID() {
+    const jmethodID getGetMethodID() {
         return getMethodId;
     }
 
-    const inline jmethodID getGetFieldID() {
+    const jmethodID getGetFieldID() {
         return getFieldId;
     }
 
-    void inline releaseToolsClass(JNIEnv *env) {
+    const jmethodID getFirstInitID() {
+        return firstInitId;
+    }
+
+    void release(JNIEnv *env) {
         env->DeleteGlobalRef(toolsClass);
         toolsClass= nullptr;
+        delete pool;
+        delete dexSeeker;
+        pool= nullptr;
+        dexSeeker= nullptr;
     }
     ~DexGlobal(){
         if(toolsClass!= nullptr){
             throw "Tools Class must be freed";
         }
-        delete pool;
+
     }
 };
 extern DexGlobal dexGlobal;
+extern thread_local bool isLog;
 extern const char fill[];
 inline bool isFixCode(){
     return (dexGlobal.dumpMode&MODE_FIX_CODE)!=0;
 }
-inline bool isDalvik(){
-    return dexGlobal.sdkOpt==DALVIK;
-};
-inline bool isKitkatArt(){
-    return dexGlobal.sdkOpt==ART_KITKAT;
-}
-inline bool isArtL(){
-    return dexGlobal.sdkOpt==ART_LOLLIPOP;
-}
+#define isDalvik() (dexGlobal.sdkOpt==DALVIK)
 
-inline bool isArtLMr1() {
-    return dexGlobal.sdkOpt == ART_LOLLIPOP_MR1;
-}
+#define isKitkatArt() (dexGlobal.sdkOpt==ART_KITKAT)
+
+#define isArtL() (dexGlobal.sdkOpt==ART_LOLLIPOP)
+
+#define isArtLMr1()  (dexGlobal.sdkOpt == ART_LOLLIPOP_MR1)
 
 inline bool isArtM() {
     return dexGlobal.sdkOpt == ART_MARSHMALLOW;
 };
-inline bool isArtNougat(){
-    return dexGlobal.sdkOpt==ART_NOUGAT;
-}
+#define isArtNougat() (dexGlobal.sdkOpt==ART_NOUGAT)
 inline bool equals(const char* s1, const char* s2){
     return strcmp(s1,s2)==0;
 }

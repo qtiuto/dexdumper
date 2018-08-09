@@ -57,7 +57,7 @@ enum {
 
 void CodeResolver::resetInlineTable() {
     for (int i = 0; i < InlineOpsTableSize; ++i) {
-        InlineOpsTable[i].methodIdx = CodeResolver::UNDEFINED;
+        InlineOpsTable[i].methodIdx = UNDEFINED;
     }
 }
 
