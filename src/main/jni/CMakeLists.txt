@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.4.1)
+aux_source_directory( . Dir0 )
+aux_source_directory( ./util Dir1 )
+add_library( dex_dump SHARED  ${Dir0}  ${Dir1} )
+find_library( libs log atomic dl )
+target_link_libraries(dex_dump ${libs} )
